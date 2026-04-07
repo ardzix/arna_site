@@ -10,31 +10,24 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
 # Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-9%0#1=p@#3_7lmc668c1f1&!ggz_v-yr9$5f-@ychs%a9lw%7z'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = []
-
-# INSTALLED_APPS = [
-#     'django.contrib.admin',
-#     'django.contrib.auth',
-#     'django.contrib.contenttypes',
-#     'django.contrib.sessions',
-#     'django.contrib.messages',
-#     'django.contrib.staticfiles',
-# ]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # Application definition
 SHARED_APPS = (
@@ -42,6 +35,11 @@ SHARED_APPS = (
     'core',            # Public models (Tenant, Domain, Templates)
     'authentication',  # SSO logic
     
+    # Shared dependencies
+    'rest_framework',
+    'drf_yasg',
+    'corsheaders',
+
     # Standard Django shared apps
     'django.contrib.admin',
     'django.contrib.auth',
@@ -49,7 +47,6 @@ SHARED_APPS = (
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',
 )
 
 TENANT_APPS = (
@@ -64,7 +61,9 @@ TENANT_APPS = (
 INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in SHARED_APPS]
 
 MIDDLEWARE = [
+    'django_tenants.middleware.main.TenantMainMiddleware',  # MUST be first
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,6 +73,7 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'config.urls'
+PUBLIC_SCHEMA_URLCONF = 'config.public_urls'  # Used when domain maps to public schema
 
 TEMPLATES = [
     {
@@ -92,16 +92,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django_tenants.postgresql_backend', # REQUIRED BY DJANGO-TENANTS
+        'NAME': os.getenv('DB_NAME', 'arna_site'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+    }
+}
+
 DATABASE_ROUTERS = (
     'django_tenants.routers.TenantSyncRouter',
 )
@@ -109,6 +113,33 @@ DATABASE_ROUTERS = (
 # Tell django-tenants which models act as the Tenant and Domain
 TENANT_MODEL = "core.Tenant"
 TENANT_DOMAIN_MODEL = "core.Domain"
+
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'authentication.backends.ArnaSSOAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'authentication.permissions.IsTenantMember',
+    ],
+}
+
+# Caching Configuration (used for SSO /auth/me/ result caching)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.getenv("REDIS_URL", "redis://localhost:6379/1"),
+    }
+}
+
+# Arna SSO & Storage Configurations
+ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api')
+ARNA_STORAGE_BASE_URL = os.getenv('ARNA_STORAGE_BASE_URL', 'https://storage.arnatech.id')
+SSO_USER_CACHE_TTL = int(os.getenv('SSO_USER_CACHE_TTL', 300))
+
+# CORS Configuration
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+CORS_ALLOW_ALL_ORIGINS = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -128,7 +159,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
@@ -140,8 +170,10 @@ USE_I18N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Default auto field for models
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
