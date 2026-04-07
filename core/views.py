@@ -2,6 +2,7 @@ from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 from authentication.permissions import IsTenantMember
 
 from core.models import Template
@@ -30,20 +31,21 @@ class TemplateDetailView(RetrieveAPIView):
 class ApplyTemplateView(APIView):
     """POST /tenants/current/apply-template"""
     permission_classes = [IsAuthenticated, IsTenantMember]
-    
+
     def post(self, request):
         template_id = request.data.get("template_id")
-        
+
         if not template_id:
             return Response({"error": "template_id is required."}, status=400)
-        
+
         from django.db import connection
-        tenant = connection.tenant   # already set by TenantMainMiddleware
-        
+        tenant = connection.tenant  # already set by TenantMainMiddleware
+
         try:
-            # apply_template completely clears and regenerates the content from Blueprint
             success = apply_template(tenant.schema_name, template_id)
+        except Template.DoesNotExist:
+            raise NotFound(detail=f"Template '{template_id}' not found.")
         except Exception as e:
             return Response({"error": str(e)}, status=400)
-            
+
         return Response({"status": "template applied successfully"}, status=200)
