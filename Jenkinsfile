@@ -111,7 +111,7 @@ docker run --rm \\
     --network ${NETWORK_NAME} \\
     --env-file /root/${STACK_NAME}/.env \\
     ${DOCKER_IMAGE}:${DOCKER_TAG} \\
-    sh -c "python manage.py migrate_schemas --shared && python manage.py migrate_schemas"
+    sh -c "python manage.py migrate_schemas --shared && python manage.py migrate_schemas && python manage.py setup_domain"
 
 echo "[INFO] Deploy success."
 EOF
