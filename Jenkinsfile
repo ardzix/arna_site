@@ -83,6 +83,8 @@ pipeline {
 
                         echo "[INFO] Deploying Docker service..."
                         ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
+set -e
+
 docker swarm init || true
 docker network create --driver overlay ${NETWORK_NAME} || true
 
