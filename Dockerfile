@@ -6,6 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libpq-dev \
     build-essential \
+    python3-dev \
+    libpcre3 \
+    libpcre3-dev \
+    libssl-dev \
+    libffi-dev \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
 
