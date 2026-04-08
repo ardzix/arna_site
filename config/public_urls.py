@@ -11,7 +11,8 @@ schema_view = get_schema_view(
       description="API for viewing and managing Master Blueprint Templates.",
    ),
    public=True,
-   permission_classes=(permissions.AllowAny,),
+   urlconf='config.public_urls',
+   permission_classes=(permissions.IsAuthenticated,),
 )
 
 urlpatterns = [

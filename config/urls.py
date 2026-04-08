@@ -11,7 +11,7 @@ schema_view = get_schema_view(
       description="APIs for isolated tenant CMS data and Arna Storage integrations.",
    ),
    public=True,
-   permission_classes=(permissions.AllowAny,),
+   permission_classes=(permissions.IsAuthenticated,),
 )
 
 urlpatterns = [
