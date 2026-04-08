@@ -144,44 +144,44 @@ The API is now available at **http://localhost:8002**.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/templates/` | ❌ | List all active master templates |
-| `GET` | `/templates/<id>/` | ❌ | Get a single template with full structure |
-| `GET` | `/swagger/` | ❌ | Swagger UI (public API) |
+| `GET` | `/templates/` | No | List all active master templates |
+| `GET` | `/templates/<id>/` | No | Get a single template with full structure |
+| `GET` | `/swagger/` | No | Swagger UI (public API) |
 
 ### Tenant Schema (`<tenant>.arna.com`)
 
 #### Site Rendering (Public)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/site/` | ❌ | Get all active sections + blocks for public rendering |
+| `GET` | `/site/` | No | Get all active sections + blocks for public rendering |
 
 #### CMS — Sections
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/sites/sections/` | ✅ | List all sections |
-| `POST` | `/api/sites/sections/` | ✅ | Create a section |
-| `GET` | `/api/sites/sections/<id>/` | ✅ | Get section detail |
-| `PATCH` | `/api/sites/sections/<id>/` | ✅ | Update a section |
-| `DELETE` | `/api/sites/sections/<id>/` | ✅ | Delete a section |
+| `GET` | `/api/sites/sections/` | Yes | List all sections |
+| `POST` | `/api/sites/sections/` | Yes | Create a section |
+| `GET` | `/api/sites/sections/<id>/` | Yes | Get section detail |
+| `PATCH` | `/api/sites/sections/<id>/` | Yes | Update a section |
+| `DELETE` | `/api/sites/sections/<id>/` | Yes | Delete a section |
 
 #### CMS — Blocks
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/sites/blocks/` | ✅ | List blocks (filter: `?section=<id>`) |
-| `POST` | `/api/sites/blocks/` | ✅ | Create a block |
-| `GET/PATCH/DELETE` | `/api/sites/blocks/<id>/` | ✅ | Block detail |
+| `GET` | `/api/sites/blocks/` | Yes | List blocks (filter: `?section=<id>`) |
+| `POST` | `/api/sites/blocks/` | Yes | Create a block |
+| `GET/PATCH/DELETE` | `/api/sites/blocks/<id>/` | Yes | Block detail |
 
 #### CMS — List Items
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/sites/items/` | ✅ | List items (filter: `?block=<id>`) |
-| `POST` | `/api/sites/items/` | ✅ | Create a list item |
-| `GET/PATCH/DELETE` | `/api/sites/items/<id>/` | ✅ | Item detail |
+| `GET` | `/api/sites/items/` | Yes | List items (filter: `?block=<id>`) |
+| `POST` | `/api/sites/items/` | Yes | Create a list item |
+| `GET/PATCH/DELETE` | `/api/sites/items/<id>/` | Yes | Item detail |
 
 #### Templates
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/tenants/current/apply-template/` | ✅ | Clone a master blueprint into this tenant's schema |
+| `POST` | `/api/tenants/current/apply-template/` | Yes | Clone a master blueprint into this tenant's schema |
 
 **Request body:**
 ```json
@@ -191,10 +191,10 @@ The API is now available at **http://localhost:8002**.
 #### Storage
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/storage/files/init-upload/` | ✅ | Initialize S3 presigned upload via File Manager |
-| `POST` | `/api/storage/files/<id>/confirm-upload/` | ✅ | Confirm upload completed, mark reference as active |
-| `GET` | `/api/storage/files/` | ✅ | List all media references |
-| `GET` | `/api/storage/files/<id>/` | ✅ | Get media reference detail |
+| `POST` | `/api/storage/files/init-upload/` | Yes | Initialize S3 presigned upload via File Manager |
+| `POST` | `/api/storage/files/<id>/confirm-upload/` | Yes | Confirm upload completed, mark reference as active |
+| `GET` | `/api/storage/files/` | Yes | List all media references |
+| `GET` | `/api/storage/files/<id>/` | Yes | Get media reference detail |
 
 **Init upload request body:**
 ```json
