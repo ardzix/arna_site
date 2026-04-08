@@ -76,15 +76,12 @@ pipeline {
                 ]) {
                     sh """
                         echo "[INFO] Preparing VPS deployment..."
-                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
                         ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} "mkdir -p /root/${STACK_NAME}"
 
                         echo "[INFO] Copying env..."
-                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
                         scp -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no .env root@${VPS_HOST}:/root/${STACK_NAME}/.env
 
                         echo "[INFO] Deploying Docker service..."
-                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
                         ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
 docker swarm init || true
 docker network create --driver overlay ${NETWORK_NAME} || true
