@@ -120,6 +120,7 @@ EOF
                 }
             }
         }
+    }
 
     post {
         always {
