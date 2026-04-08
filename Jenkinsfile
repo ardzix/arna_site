@@ -39,9 +39,7 @@ pipeline {
                 withCredentials([
                     file(credentialsId: 'arna-site-env', variable: 'ENV_FILE')
                 ]) {
-                    sh """
-                        cp "${ENV_FILE}" .env
-                    """
+                    sh 'cp "$ENV_FILE" .env'
                 }
             }
         }
@@ -78,17 +76,19 @@ pipeline {
                 ]) {
                     sh """
                         echo "[INFO] Preparing VPS deployment..."
-                        ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} "mkdir -p /root/${STACK_NAME}"
+                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
+                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} "mkdir -p /root/${STACK_NAME}"
 
                         echo "[INFO] Copying env..."
-                        scp -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no .env root@${VPS_HOST}:/root/${STACK_NAME}/.env
+                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
+                        scp -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no .env root@${VPS_HOST}:/root/${STACK_NAME}/.env
 
                         echo "[INFO] Deploying Docker service..."
-                        ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
+                        # Tambahkan backslash (\) di depan $SSH_KEY_FILE
+                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
 docker swarm init || true
 docker network create --driver overlay ${NETWORK_NAME} || true
 
-# [LOGIKA ZERO-DOWNTIME]
 if docker service ls | awk '{print \\\$2}' | grep -wq ${STACK_NAME}; then
     echo "[INFO] Service found. Performing rolling update..."
     docker service update \\
@@ -108,7 +108,6 @@ else
 fi
 
 echo "[INFO] Running Django Multi-Tenant Migrations..."
-# Eksekusi container ephemeral untuk menjalankan update skema database
 docker run --rm \\
     --network ${NETWORK_NAME} \\
     --env-file /root/${STACK_NAME}/.env \\
@@ -121,7 +120,6 @@ EOF
                 }
             }
         }
-    }
 
     post {
         always {
