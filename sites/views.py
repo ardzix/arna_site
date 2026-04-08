@@ -24,11 +24,20 @@ class PublicSiteView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        sections = Section.objects.filter(is_active=True).prefetch_related(
+        from django.db import connection
+        tenant = connection.tenant
+        
+        sections = Section.objects.filter(is_active=True).order_by("order").prefetch_related(
             "blocks__items"
         )
         serializer = SectionSerializer(sections, many=True)
-        return Response(serializer.data)
+        return Response({
+            "tenant": {
+                "name": tenant.name,
+                "slug": tenant.slug
+            },
+            "sections": serializer.data
+        })
 
 
 class SectionViewSet(viewsets.ModelViewSet):
@@ -95,3 +104,28 @@ class ItemDetailView(RetrieveUpdateDestroyAPIView):
     queryset = ListItem.objects.all()
     serializer_class = ListItemSerializer
     permission_classes = [IsAuthenticated, IsTenantMember]
+
+
+class SectionReorderView(APIView):
+    """
+    PATCH /api/sites/sections/reorder/
+    Expects a JSON array of objects: [{"id": "uuid", "order": 1}, ...]
+    Updates the 'order' field of Multiple sections atomic transaction.
+    """
+    permission_classes = [IsAuthenticated, IsTenantMember]
+    
+    def patch(self, request):
+        sections_data = request.data
+        if not isinstance(sections_data, list):
+            return Response({"error": "Expected a list of objects"}, status=400)
+            
+        from django.db import transaction
+        
+        with transaction.atomic():
+            for item in sections_data:
+                section_id = item.get("id")
+                order = item.get("order")
+                if section_id and order is not None:
+                    Section.objects.filter(id=section_id).update(order=order)
+                    
+        return Response({"status": "Reordered successfully"}, status=200)

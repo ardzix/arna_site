@@ -127,22 +127,43 @@ class E2EApplyTemplateTest(TestCase):
         self.assertEqual(response.status_code, 401)
 
     @patch('authentication.backends.http.get')
-    def test_apply_template_idempotent(self, mock_get):
-        """Applying the same template twice must not create duplicate sections."""
+    def test_apply_template_overwrite_false_returns_409(self, mock_get):
+        """Applying with overwrite=False on domain with existing data should return 409."""
         mock_get.side_effect = _make_auth_mock(str(self.tenant_org_id))
-
-        client = TenantClient(self.test_tenant)
-        payload = {"template_id": str(self.template.id)}
-        headers = {"HTTP_AUTHORIZATION": "Bearer fake_jwt_token"}
-
-        client.post("/api/tenants/current/apply-template/",
-                    payload, content_type="application/json", **headers)
-        client.post("/api/tenants/current/apply-template/",
-                    payload, content_type="application/json", **headers)
-
+        
+        # Populate existing data
         from django.db import connection
         connection.set_tenant(self.test_tenant)
+        Section.objects.create(type="header", order=1)
+        
+        client = TenantClient(self.test_tenant)
+        payload = {"template_id": str(self.template.id), "overwrite": False}
+        headers = {"HTTP_AUTHORIZATION": "Bearer fake_jwt_token"}
+
+        response = client.post("/api/tenants/current/apply-template/",
+                               payload, content_type="application/json", **headers)
+
+        self.assertEqual(response.status_code, 409)
+
+    @patch('authentication.backends.http.get')
+    def test_apply_template_overwrite_true_replaces_content(self, mock_get):
+        """Applying with overwrite=True should succeed and wipe existing data."""
+        mock_get.side_effect = _make_auth_mock(str(self.tenant_org_id))
+        
+        # Populate existing data
+        from django.db import connection
+        connection.set_tenant(self.test_tenant)
+        Section.objects.create(type="header", order=1)
+        
+        client = TenantClient(self.test_tenant)
+        payload = {"template_id": str(self.template.id), "overwrite": True}
+        headers = {"HTTP_AUTHORIZATION": "Bearer fake_jwt_token"}
+
+        response = client.post("/api/tenants/current/apply-template/",
+                               payload, content_type="application/json", **headers)
+
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(
             Section.objects.filter(type="hero").count(), 1,
-            "Re-applying a template must replace content, not duplicate it"
+            "Re-applying a template with overwrite=true must replace content"
         )

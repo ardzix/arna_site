@@ -3,7 +3,7 @@ from core.models import Template
 from sites.models import Section, ContentBlock, ListItem
 
 
-def apply_template(tenant_schema: str, template_id: str):
+def apply_template(tenant_schema: str, template_id: str, overwrite: bool = False):
     """
     Clones a master Template (from public schema) into the current Tenant schema.
 
@@ -20,6 +20,9 @@ def apply_template(tenant_schema: str, template_id: str):
     ).get(id=template_id)
 
     with transaction.atomic():
+        if not overwrite and Section.objects.exists():
+            raise ValueError("Template already applied. Pass overwrite=true to replace.")
+            
         # Clear existing sites content for this tenant before applying
         Section.objects.all().delete()
 

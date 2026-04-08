@@ -105,13 +105,16 @@ class SitesCRUDTest(TestCase):
 
     @patch('authentication.backends.http.get')
     def test_public_site_view_no_auth_required(self, mock_get):
-        """GET /site/ must return 200 without any auth header."""
+        """GET /public/site/ must return 200 without any auth header."""
         mock_get.side_effect = _make_auth_mock(str(self.org_id))
         client = TenantClient(self.tenant)
 
-        resp = client.get("/site/")
+        resp = client.get("/public/site/")
         self.assertEqual(resp.status_code, 200)
-        self.assertIsInstance(resp.json(), list)
+        data = resp.json()
+        self.assertIn("tenant", data)
+        self.assertIn("sections", data)
+        self.assertEqual(data["tenant"]["slug"], "sites-test")
 
     @patch('authentication.backends.http.get')
     def test_schema_isolation(self, mock_get):
@@ -128,3 +131,29 @@ class SitesCRUDTest(TestCase):
         connection.set_tenant(self.tenant)
         from sites.models import Section
         self.assertEqual(Section.objects.count(), 1)
+
+    @patch('authentication.backends.http.get')
+    def test_section_reorder(self, mock_get):
+        """PATCH /api/sites/sections/reorder/ bulk updates order."""
+        mock_get.side_effect = _make_auth_mock(str(self.org_id))
+        client = TenantClient(self.tenant)
+        auth = {"HTTP_AUTHORIZATION": "Bearer valid_token"}
+
+        # Create two sections
+        s1 = client.post("/api/sites/sections/", {"type": "hero", "order": 1}, content_type="application/json", **auth).json()
+        s2 = client.post("/api/sites/sections/", {"type": "about", "order": 2}, content_type="application/json", **auth).json()
+
+        # Reorder them
+        resp = client.patch(
+            "/api/sites/sections/reorder/",
+            [{"id": s1["id"], "order": 2}, {"id": s2["id"], "order": 1}],
+            content_type="application/json", **auth
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        # Verify new order in db
+        from django.db import connection
+        connection.set_tenant(self.tenant)
+        from sites.models import Section
+        self.assertEqual(Section.objects.get(id=s1["id"]).order, 2)
+        self.assertEqual(Section.objects.get(id=s2["id"]).order, 1)

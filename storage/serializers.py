@@ -8,7 +8,24 @@ class MediaReferenceSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "file_id", "url", "status", "created_at"]
 
 class StorageUploadRequestSerializer(serializers.Serializer):
-    # Proxy payload payload specific to S3 direct upload initialization
-    display_name = serializers.CharField(max_length=255)
+    filename = serializers.CharField(max_length=255)
     mime_type = serializers.CharField(max_length=255)
     size_bytes = serializers.IntegerField()
+    owner_scope = serializers.ChoiceField(choices=["user", "org"], default="org")
+    visibility = serializers.ChoiceField(choices=["private", "org", "public", "shared"], default="private")
+
+class StoragePresignRequestSerializer(serializers.Serializer):
+    parts = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False
+    )
+    
+class StorageCompletePartSerializer(serializers.Serializer):
+    part_number = serializers.IntegerField(min_value=1)
+    etag = serializers.CharField(max_length=255)
+
+class StorageCompleteRequestSerializer(serializers.Serializer):
+    parts = serializers.ListField(
+        child=StorageCompletePartSerializer(),
+        allow_empty=False
+    )

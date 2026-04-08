@@ -20,6 +20,6 @@ urlpatterns = [
     path('api/sites/', include('sites.urls')),
     path('api/storage/', include('storage.urls')),
     # Public (no-auth) site rendering endpoint for tenant frontends
-    path('', include('sites.public_urls')),
+    path('public/', include('sites.public_urls')),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]

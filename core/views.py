@@ -34,6 +34,7 @@ class ApplyTemplateView(APIView):
 
     def post(self, request):
         template_id = request.data.get("template_id")
+        overwrite = str(request.data.get("overwrite", "false")).lower() == "true"
 
         if not template_id:
             return Response({"error": "template_id is required."}, status=400)
@@ -42,9 +43,11 @@ class ApplyTemplateView(APIView):
         tenant = connection.tenant  # already set by TenantMainMiddleware
 
         try:
-            success = apply_template(tenant.schema_name, template_id)
+            success = apply_template(tenant.schema_name, template_id, overwrite=overwrite)
         except Template.DoesNotExist:
             raise NotFound(detail=f"Template '{template_id}' not found.")
+        except ValueError as e:
+            return Response({"error": str(e)}, status=409)
         except Exception as e:
             return Response({"error": str(e)}, status=400)
 
