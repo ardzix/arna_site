@@ -13,7 +13,7 @@ pipeline {
         STACK_NAME = 'arna_site'
         REPLICAS = '1'
         NETWORK_NAME = 'production'
-        SERVICE_PORT = '8002'
+        SERVICE_PORT = '8002' // Port eksternal yang terekspos
 
         // VPS
         VPS_HOST = '172.105.124.43'
@@ -33,6 +33,7 @@ pipeline {
             }
         }
 
+        // Untuk ArnaSite, kita HANYA butuh .env (tidak butuh public.pem)
         stage('Inject Env') {
             steps {
                 withCredentials([
@@ -86,15 +87,33 @@ pipeline {
                         ssh -i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
 docker swarm init || true
 docker network create --driver overlay ${NETWORK_NAME} || true
-docker service rm ${STACK_NAME} || true
 
-docker service create \\
-  --name ${STACK_NAME} \\
-  --replicas ${REPLICAS} \\
-  --network ${NETWORK_NAME} \\
-  --env-file /root/${STACK_NAME}/.env \\
-  --publish ${SERVICE_PORT}:8002 \\
-  ${DOCKER_IMAGE}:${DOCKER_TAG}
+# [LOGIKA ZERO-DOWNTIME]
+if docker service ls | awk '{print \\\$2}' | grep -wq ${STACK_NAME}; then
+    echo "[INFO] Service found. Performing rolling update..."
+    docker service update \\
+        --image ${DOCKER_IMAGE}:${DOCKER_TAG} \\
+        --env-add file=/root/${STACK_NAME}/.env \\
+        --update-delay 10s \\
+        ${STACK_NAME}
+else
+    echo "[INFO] Service not found. Creating new service..."
+    docker service create \\
+        --name ${STACK_NAME} \\
+        --replicas ${REPLICAS} \\
+        --network ${NETWORK_NAME} \\
+        --env-file /root/${STACK_NAME}/.env \\
+        --publish ${SERVICE_PORT}:8002 \\
+        ${DOCKER_IMAGE}:${DOCKER_TAG}
+fi
+
+echo "[INFO] Running Django Multi-Tenant Migrations..."
+# Eksekusi container ephemeral untuk menjalankan update skema database
+docker run --rm \\
+    --network ${NETWORK_NAME} \\
+    --env-file /root/${STACK_NAME}/.env \\
+    ${DOCKER_IMAGE}:${DOCKER_TAG} \\
+    sh -c "python manage.py migrate_schemas --shared && python manage.py migrate_schemas"
 
 echo "[INFO] Deploy success."
 EOF
