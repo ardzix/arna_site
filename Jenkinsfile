@@ -38,7 +38,7 @@ pipeline {
             steps {
                 withCredentials([
                     file(credentialsId: 'arna-site-env', variable: 'ENV_FILE'),
-                    file(credentialsId: 'arna-sso-public-key', variable: 'PUB_KEY_FILE')
+                    file(credentialsId: 'sso_public_pem', variable: 'PUB_KEY_FILE')
                 ]) {
                     sh 'cp "$ENV_FILE" .env'
                     sh 'mkdir -p ssl'
