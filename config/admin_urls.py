@@ -15,7 +15,7 @@ from sites.admin_views import (
 
 schema_view = get_schema_view(
    openapi.Info(
-      title="ArnaSite Admin API",
+      title="ArnaSite Site Admin API",
       default_version='v1',
       description="API endpoints for tenant administrators to manage website content.",
    ),
