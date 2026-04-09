@@ -15,6 +15,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path('admin/api/', include('config.admin_urls')),
     path('admin/', admin.site.urls),
     path('api/tenants/current/', include('core.tenant_urls')),
     path('api/sites/', include('sites.urls')),

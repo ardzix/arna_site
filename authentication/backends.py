@@ -15,12 +15,15 @@ class SSOUser:
     (e.g. Tenant) either fails or returns stale DB state on unpickle,
     causing DatabaseError on the next request.
     """
-    def __init__(self, user_id, email, org_id, tenant_schema, tenant_name):
+    def __init__(self, user_id, email, org_id, tenant_schema, tenant_name, roles=None, permissions=None, is_owner=False):
         self.id = user_id
         self.email = email
         self.org_id = org_id
         self.tenant_schema = tenant_schema   # str — safe to pickle
         self.tenant_name = tenant_name       # str — safe to pickle
+        self.roles = roles or []
+        self.permissions = permissions or []
+        self.is_owner = is_owner
         self.is_authenticated = True
         self.is_anonymous = False
 
@@ -75,10 +78,13 @@ class ArnaSSOAuthentication(BaseAuthentication):
         # ✅ Pass only primitive strings — safe for Redis pickle
         user = SSOUser(
             user_id=me_data["id"],
-            email=me_data["email"],
+            email=me_data.get("email", ""),
             org_id=org_id,
             tenant_schema=tenant.schema_name,  # str
             tenant_name=tenant.name,            # str
+            roles=org_data.get("roles", []),
+            permissions=org_data.get("permissions", []),
+            is_owner=org_data.get("is_owner", False)
         )
 
         cache.set(cache_key, {"user": user}, timeout=settings.SSO_USER_CACHE_TTL)

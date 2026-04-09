@@ -56,3 +56,7 @@ celerybeat-schedule
 # Keys
 *.pem
 supervisord.pid
+config/__pycache__/settings.cpython-314.pyc
+/config/__pycache__
+config/__pycache__/settings.cpython-314.pyc
+config/__pycache__/settings.cpython-314.pyc

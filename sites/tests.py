@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django_tenants.test.client import TenantClient
 from unittest.mock import patch
 import uuid
@@ -21,7 +21,7 @@ def _make_auth_mock(org_id_str):
 
     return side_effect
 
-
+@override_settings(ALLOWED_HOSTS=['*'])
 class SitesCRUDTest(TestCase):
     def setUp(self):
         from django.db import connection

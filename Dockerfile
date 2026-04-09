@@ -23,4 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r /a
 COPY . /app
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# Copy the public key for JWT verification
+COPY ssl/public.pem /app/ssl/public.pem
+
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

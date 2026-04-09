@@ -33,13 +33,16 @@ pipeline {
             }
         }
 
-        // Untuk ArnaSite, kita HANYA butuh .env (tidak butuh public.pem)
-        stage('Inject Env') {
+        // Suntikkan file environment dan public_key (untuk auth lokal JWT Admin API)
+        stage('Inject Env & Keys') {
             steps {
                 withCredentials([
-                    file(credentialsId: 'arna-site-env', variable: 'ENV_FILE')
+                    file(credentialsId: 'arna-site-env', variable: 'ENV_FILE'),
+                    file(credentialsId: 'arna-sso-public-key', variable: 'PUB_KEY_FILE')
                 ]) {
                     sh 'cp "$ENV_FILE" .env'
+                    sh 'mkdir -p ssl'
+                    sh 'cp "$PUB_KEY_FILE" ssl/public.pem'
                 }
             }
         }

@@ -138,6 +138,11 @@ ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api'
 ARNA_STORAGE_BASE_URL = os.getenv('ARNA_STORAGE_BASE_URL', 'https://storage.arnatech.id')
 SSO_USER_CACHE_TTL = int(os.getenv('SSO_USER_CACHE_TTL', 300))
 
+# Arna SSO JWT Settings
+SSO_JWT_PUBLIC_KEY_PATH = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', '/app/ssl/public.pem')
+SSO_JWT_ALGORITHM = 'RS256'
+SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', 'arnasite')
+
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CORS_ALLOW_ALL_ORIGINS = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
