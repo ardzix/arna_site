@@ -104,7 +104,7 @@ curl http://localhost:8002/templates/
 
 The API is now available at **http://localhost:8002**.
 Swagger UI (tenant API): **http://localhost:8002/swagger/**
-Swagger UI (admin API): **http://localhost:8002/admin/api/swagger/**
+Swagger UI (admin API): **http://localhost:8002/site-admin/api/swagger/**
 
 ---
 
@@ -148,7 +148,7 @@ Flow per request:
 
 ### 2. `ArnaJWTAuthentication` — Admin API
 
-Used exclusively by `/admin/api/`.
+Used exclusively by `/site-admin/api/`.
 
 Flow per request:
 1. Extracts `Authorization: Bearer <token>` from the request.
@@ -177,7 +177,7 @@ IsAuthenticated         — valid user object present
 ```
 config/
 ├── urls.py              # Root URL dispatcher
-├── admin_urls.py        # Admin API routes (/admin/api/)
+├── admin_urls.py        # Admin API routes (/site-admin/api/)
 └── public_urls.py       # Public schema routes (/templates/)
 
 core/                    # Public schema — tenant & template management
@@ -278,11 +278,11 @@ Init upload request body:
 
 ### Tenant Schema — Admin API (JWT Auth)
 
-Base URL: `http://<tenant-domain>:8002/admin/api/`
+Base URL: `http://<tenant-domain>:8002/site-admin/api/`
 Auth: `Authorization: Bearer <arna-sso-jwt-token>`
 Required role: **`site_admin`** in JWT `roles` claim, or **`is_owner: true`**
 
-> **Swagger UI:** [`/admin/api/swagger/`](http://localhost:8002/admin/api/swagger/)
+> **Swagger UI:** [`/site-admin/api/swagger/`](http://localhost:8002/site-admin/api/swagger/)
 
 This API surface is identical in capability to the Tenant API but uses **local JWT decode** — no SSO round-trip per request. Intended for use by admin dashboards and content management tools.
 
@@ -290,12 +290,12 @@ This API surface is identical in capability to the Tenant API but uses **local J
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/admin/api/sections/` | JWT Admin | List all sections |
-| `POST` | `/admin/api/sections/` | JWT Admin | Create a section |
-| `GET` | `/admin/api/sections/<id>/` | JWT Admin | Section detail |
-| `PATCH` | `/admin/api/sections/<id>/` | JWT Admin | Update a section |
-| `DELETE` | `/admin/api/sections/<id>/` | JWT Admin | Delete a section |
-| `PATCH` | `/admin/api/sections/reorder/` | JWT Admin | Bulk reorder sections |
+| `GET` | `/site-admin/api/sections/` | JWT Admin | List all sections |
+| `POST` | `/site-admin/api/sections/` | JWT Admin | Create a section |
+| `GET` | `/site-admin/api/sections/<id>/` | JWT Admin | Section detail |
+| `PATCH` | `/site-admin/api/sections/<id>/` | JWT Admin | Update a section |
+| `DELETE` | `/site-admin/api/sections/<id>/` | JWT Admin | Delete a section |
+| `PATCH` | `/site-admin/api/sections/reorder/` | JWT Admin | Bulk reorder sections |
 
 Reorder request body:
 ```json
@@ -309,31 +309,31 @@ Reorder request body:
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/admin/api/blocks/` | JWT Admin | List blocks (filter: `?section=<id>`) |
-| `POST` | `/admin/api/blocks/` | JWT Admin | Create a block |
-| `GET/PATCH/DELETE` | `/admin/api/blocks/<id>/` | JWT Admin | Block detail / update / delete |
+| `GET` | `/site-admin/api/blocks/` | JWT Admin | List blocks (filter: `?section=<id>`) |
+| `POST` | `/site-admin/api/blocks/` | JWT Admin | Create a block |
+| `GET/PATCH/DELETE` | `/site-admin/api/blocks/<id>/` | JWT Admin | Block detail / update / delete |
 
 #### Admin — List Items
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/admin/api/items/` | JWT Admin | List items (filter: `?block=<id>`) |
-| `POST` | `/admin/api/items/` | JWT Admin | Create a list item |
-| `GET/PATCH/DELETE` | `/admin/api/items/<id>/` | JWT Admin | Item detail / update / delete |
+| `GET` | `/site-admin/api/items/` | JWT Admin | List items (filter: `?block=<id>`) |
+| `POST` | `/site-admin/api/items/` | JWT Admin | Create a list item |
+| `GET/PATCH/DELETE` | `/site-admin/api/items/<id>/` | JWT Admin | Item detail / update / delete |
 
 #### Admin — Storage
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/admin/api/storage/init-upload/` | JWT Admin | Initialize S3 presigned upload |
-| `POST` | `/admin/api/storage/<id>/confirm-upload/` | JWT Admin | Confirm upload |
-| `GET` | `/admin/api/storage/` | JWT Admin | List all media references |
+| `POST` | `/site-admin/api/storage/init-upload/` | JWT Admin | Initialize S3 presigned upload |
+| `POST` | `/site-admin/api/storage/<id>/confirm-upload/` | JWT Admin | Confirm upload |
+| `GET` | `/site-admin/api/storage/` | JWT Admin | List all media references |
 
 #### Admin — Template Application
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `POST` | `/admin/api/tenants/current/apply-template/` | JWT Admin | Apply master template to tenant |
+| `POST` | `/site-admin/api/tenants/current/apply-template/` | JWT Admin | Apply master template to tenant |
 
 Request body:
 ```json
@@ -366,7 +366,7 @@ Two separate Swagger UIs are available:
 | UI | URL | Covers |
 |----|-----|--------|
 | **Public + Tenant API** | `http://<host>:8002/swagger/` | `/templates/`, `/api/sites/`, `/api/storage/`, `/api/tenants/` |
-| **Admin API** | `http://<host>:8002/admin/api/swagger/` | All `/admin/api/` endpoints (sections, blocks, items, storage, apply-template, reorder) |
+| **Admin API** | `http://<host>:8002/site-admin/api/swagger/` | All `/site-admin/api/` endpoints (sections, blocks, items, storage, apply-template, reorder) |
 
 The Admin API Swagger documents all endpoints with their required JWT bearer authentication. Use the **Authorize** button and enter:
 ```
