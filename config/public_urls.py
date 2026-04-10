@@ -15,7 +15,6 @@ schema_view = get_schema_view(
    permission_classes=(permissions.AllowAny,),
 )
 urlpatterns = [
-    path('site-admin/api/', include('config.admin_urls')),
     path('admin/', admin.site.urls),
     path("templates/", include("core.urls")),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

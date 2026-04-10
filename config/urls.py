@@ -12,6 +12,12 @@ schema_view = get_schema_view(
    ),
    public=True,
    permission_classes=(permissions.AllowAny,),
+   patterns=[
+      path('api/tenants/current/', include('core.tenant_urls')),
+      path('api/sites/', include('sites.urls')),
+      path('api/storage/', include('storage.urls')),
+      path('public/', include('sites.public_urls')),
+   ],
 )
 
 urlpatterns = [

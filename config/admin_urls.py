@@ -13,6 +13,12 @@ from sites.admin_views import (
     AdminApplyTemplateView,
 )
 
+router = DefaultRouter()
+router.register(r'sections', AdminSectionViewSet, basename='admin-sections')
+router.register(r'blocks', AdminContentBlockViewSet, basename='admin-blocks')
+router.register(r'items', AdminListItemViewSet, basename='admin-items')
+router.register(r'storage', AdminMediaReferenceViewSet, basename='admin-storage')
+
 schema_view = get_schema_view(
    openapi.Info(
       title="ArnaSite Site Admin API",
@@ -22,13 +28,12 @@ schema_view = get_schema_view(
    public=True,
    permission_classes=(permissions.AllowAny,),
    authentication_classes=(ArnaJWTAuthentication,),
+    patterns=[
+        path('sections/reorder/', AdminSectionReorderView.as_view(), name='admin-section-reorder-docs'),
+        path('tenants/current/apply-template/', AdminApplyTemplateView.as_view(), name='admin-apply-template-docs'),
+        path('', include(router.urls)),
+    ],
 )
-
-router = DefaultRouter()
-router.register(r'sections', AdminSectionViewSet, basename='admin-sections')
-router.register(r'blocks', AdminContentBlockViewSet, basename='admin-blocks')
-router.register(r'items', AdminListItemViewSet, basename='admin-items')
-router.register(r'storage', AdminMediaReferenceViewSet, basename='admin-storage')
 
 urlpatterns = [
     path('sections/reorder/', AdminSectionReorderView.as_view(), name='admin-section-reorder'),
