@@ -15,6 +15,7 @@ A **multi-tenant website CMS backend** built with Django and django-tenants. Eac
   - [Tenant Schema — Tenant API (SSO Auth)](#tenant-schema-tenant-api-sso-auth)
   - [Tenant Schema — Admin API (JWT Auth)](#tenant-schema-admin-api-jwt-auth)
 - [Swagger / API Docs](#swagger--api-docs)
+- [Production QA Walkthrough](#production-qa-walkthrough)
 - [Running Tests](#running-tests)
 - [Tenant Onboarding](#tenant-onboarding)
 - [Docker Compose Services](#docker-compose-services)
@@ -372,6 +373,10 @@ The Admin API Swagger documents all endpoints with their required JWT bearer aut
 ```
 Bearer <your-arna-sso-jwt-token>
 ```
+
+## Production QA Walkthrough
+
+For a production-safe, step-by-step QA process that uses Postman and covers public, tenant, and admin flows, see [QA_WALKTHROUGH.md](QA_WALKTHROUGH.md).
 
 ---
 
