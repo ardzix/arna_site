@@ -1,6 +1,3 @@
-# ArnaSite
-
-A **multi-tenant website CMS backend** built with Django and django-tenants. Each organization gets an isolated PostgreSQL schema. Content managers interact via a standard tenant API (SSO token → /auth/me validation), while tenant administrators get a dedicated Admin API secured by **local RS256 JWT verification** — no SSO round-trip per request.
 
 ## Yang Belum Selesai / Masih Perlu Keputusan
 
@@ -26,6 +23,9 @@ Status: NOT DONE
 - Belum dilakukan QA end-to-end lengkap dari login SSO -> akses tenant/admin API -> upload storage -> public rendering per tenant domain.
 - QA checklist lintas service (Arna SSO, ArnaSite, Arna Storage) masih perlu eksekusi final dan sign-off.
 
+# ArnaSite
+
+A **multi-tenant website CMS backend** built with Django and django-tenants. Each organization gets an isolated PostgreSQL schema. Content managers interact via a standard tenant API (SSO token → /auth/me validation), while tenant administrators get a dedicated Admin API secured by **local RS256 JWT verification** — no SSO round-trip per request.
 
 ## Table of Contents
 
