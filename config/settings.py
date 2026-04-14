@@ -123,6 +123,7 @@ SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', 'arnasite')
 # CORS
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CORS_ALLOW_ALL_ORIGINS = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
+CORS_ALLOW_CREDENTIALS = os.getenv('CORS_ALLOW_CREDENTIALS', 'False').lower() in ('true', '1', 'yes')
 
 # Swagger / drf-yasg
 SWAGGER_SETTINGS = {
