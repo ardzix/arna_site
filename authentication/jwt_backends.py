@@ -51,7 +51,11 @@ class ArnaJWTAuthentication(BaseAuthentication):
 
         token = auth_header.split(" ", 1)[1]
         cache_key = f"sso_jwt_user:{hashlib.sha256(token.encode()).hexdigest()}"
-        cached = cache.get(cache_key)
+
+        try:
+            cached = cache.get(cache_key)
+        except Exception:
+            cached = None
 
         if cached:
             return cached["user"], token
@@ -61,21 +65,26 @@ class ArnaJWTAuthentication(BaseAuthentication):
                 token,
                 self.public_key,
                 algorithms=[settings.SSO_JWT_ALGORITHM],
-                options={"require": ["exp", "user_id", "org_id"]},
-                audience=getattr(settings, "SSO_JWT_AUDIENCE", "arnasite")
+                options={
+                    "require": ["exp", "user_id"],
+                    "verify_aud": False,
+                },
             )
-        except jwt.PyJWTError:
-            raise AuthenticationFailed("Invalid or expired JWT token.")
+        except jwt.PyJWTError as e:
+            raise AuthenticationFailed(f"Invalid or expired JWT token: {e}")
 
         user_id = claims.get("user_id")
         org_id = claims.get("org_id")
 
-        # Resolve tenant from organization ID
+        # Resolve tenant from organization ID.
+        # Return None (anonymous) instead of raising when tenant doesn't exist yet —
+        # e.g. during POST /tenants/register/ the tenant hasn't been created yet.
+        # Views that require a tenant (IsTenantMember etc.) will reject the request anyway.
         from core.models import Tenant
         try:
             tenant = Tenant.objects.get(sso_organization_id=org_id)
         except Tenant.DoesNotExist:
-            raise AuthenticationFailed("This organization does not have an ArnaSite tenant.")
+            return None
 
         user = SSOUser(
             user_id=user_id,
@@ -88,8 +97,10 @@ class ArnaJWTAuthentication(BaseAuthentication):
             is_owner=claims.get("is_owner", False)
         )
 
-        # Cache the user object for a short period
-        cache.set(cache_key, {"user": user}, timeout=60)
+        try:
+            cache.set(cache_key, {"user": user}, timeout=60)
+        except Exception:
+            pass  # Redis down — proceed without caching
 
         return user, token
 

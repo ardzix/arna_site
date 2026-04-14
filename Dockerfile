@@ -18,12 +18,17 @@ ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=config.settings
 
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Copy the public key for JWT verification
-COPY ssl/public.pem /app/ssl/public.pem
+# Arna SSO RS256 public key — diinject oleh CI sebelum docker build
+# Lokal: letakkan public.pem di root project
+# SSO_JWT_PUBLIC_KEY_PATH=public.pem di .env (di-resolve relatif ke BASE_DIR=/app)
+COPY public.pem /app/public.pem
+
+EXPOSE 8001
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

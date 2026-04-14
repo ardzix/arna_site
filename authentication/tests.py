@@ -13,6 +13,8 @@ from authentication.backends import SSOUser
 from authentication.test_helpers import generate_rsa_keypair, make_jwt
 
 
+
+
 class ArnaJWTAuthenticationTest(TestCase):
     @classmethod
     def setUpClass(cls):
@@ -308,99 +310,3 @@ class PermissionTest(TestCase):
         self.assertFalse(perm.has_permission(req, MagicMock()))
 
 
-class ArnaSSOAuthenticationTest(TestCase):
-    @patch('authentication.backends.http.get')
-    def test_sso_auth_user_has_roles(self, mock_get):
-        from authentication.backends import ArnaSSOAuthentication
-        auth = ArnaSSOAuthentication()
-        req = MagicMock()
-        req.META = {"HTTP_AUTHORIZATION": "Bearer valid_token"}
-        
-        class MockMe:
-            def json(self): return {"id": "1", "email": "a@a.com"}
-            def raise_for_status(self): pass
-
-        class MockOrg:
-            def json(self): return {"id": "o1", "roles": ["site_admin"], "permissions": ["write"], "is_owner": True}
-            def raise_for_status(self): pass
-
-        def side_effect(url, *args, **kwargs):
-            if "auth/me" in url: return MockMe()
-            elif "organizations/current" in url: return MockOrg()
-            raise Exception(f"Unmocked URL: {url}")
-
-        mock_get.side_effect = side_effect
-        
-        with patch('authentication.backends.cache.get', return_value=None), \
-             patch('authentication.backends.cache.set'), \
-             patch('core.models.Tenant.objects.get') as mock_tenant_get:
-            
-            mock_tenant = MagicMock()
-            mock_tenant.schema_name = 'tenant_x'
-            mock_tenant.name = 'Tenant X'
-            mock_tenant_get.return_value = mock_tenant
-            
-            user, token = auth.authenticate(req)
-            self.assertEqual(user.roles, ["site_admin"])
-            self.assertEqual(user.permissions, ["write"])
-            self.assertTrue(user.is_owner)
-            self.assertEqual(str(user), "a@a.com")
-            self.assertEqual(auth.authenticate_header(None), "Bearer")
-
-    @patch('authentication.backends.http.get')
-    def test_sso_auth_me_failure(self, mock_get):
-        from authentication.backends import ArnaSSOAuthentication
-        import requests
-        auth = ArnaSSOAuthentication()
-        req = MagicMock()
-        req.META = {"HTTP_AUTHORIZATION": "Bearer invalid"}
-        mock_get.side_effect = requests.RequestException("Network Error")
-        with self.assertRaises(AuthenticationFailed):
-            auth.authenticate(req)
-
-    @patch('authentication.backends.http.get')
-    def test_sso_org_failure(self, mock_get):
-        from authentication.backends import ArnaSSOAuthentication
-        import requests
-        auth = ArnaSSOAuthentication()
-        req = MagicMock()
-        req.META = {"HTTP_AUTHORIZATION": "Bearer valid"}
-        
-        class MockMe:
-            def json(self): return {"id": "1"}
-            def raise_for_status(self): pass
-
-        def side_effect(url, *args, **kwargs):
-            if "auth/me" in url: return MockMe()
-            raise requests.RequestException("Org network error")
-
-        mock_get.side_effect = side_effect
-        with self.assertRaises(AuthenticationFailed):
-            auth.authenticate(req)
-
-    @patch('authentication.backends.http.get')
-    def test_sso_tenant_not_found(self, mock_get):
-        from authentication.backends import ArnaSSOAuthentication
-        auth = ArnaSSOAuthentication()
-        req = MagicMock()
-        req.META = {"HTTP_AUTHORIZATION": "Bearer valid"}
-        
-        class MockMe:
-            def json(self): return {"id": "1"}
-            def raise_for_status(self): pass
-
-        class MockOrg:
-            def json(self): return {"id": "o1"}
-            def raise_for_status(self): pass
-
-        def side_effect(url, *args, **kwargs):
-            if "auth/me" in url: return MockMe()
-            elif "organizations/current" in url: return MockOrg()
-            return MockMe() # fallback
-
-        mock_get.side_effect = side_effect
-        
-        from core.models import Tenant
-        with patch('core.models.Tenant.objects.get', side_effect=Tenant.DoesNotExist):
-            with self.assertRaises(AuthenticationFailed):
-                auth.authenticate(req)

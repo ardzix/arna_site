@@ -6,14 +6,14 @@ pipeline {
 
         // Docker
         DOCKER_IMAGE = 'ardzix/arna_site'
-        DOCKER_TAG = "${BUILD_NUMBER}"
+        DOCKER_TAG   = "${BUILD_NUMBER}"
         DOCKER_REGISTRY_CREDENTIALS = 'ard-dockerhub'
 
         // Swarm
-        STACK_NAME = 'arna_site'
-        REPLICAS = '1'
+        STACK_NAME   = 'arna_site'
+        REPLICAS     = '1'
         NETWORK_NAME = 'production'
-        SERVICE_PORT = '8002' // Port eksternal yang terekspos
+        SERVICE_PORT = '8001'   // Port eksternal (host:container)
 
         // VPS
         VPS_HOST = '172.105.124.43'
@@ -33,16 +33,15 @@ pipeline {
             }
         }
 
-        // Suntikkan file environment dan public_key (untuk auth lokal JWT Admin API)
+        // Inject .env dan public.pem ke root project sebelum docker build
         stage('Inject Env & Keys') {
             steps {
                 withCredentials([
-                    file(credentialsId: 'arna-site-env', variable: 'ENV_FILE'),
-                    file(credentialsId: 'sso_public_pem', variable: 'PUB_KEY_FILE')
+                    file(credentialsId: 'arna-site-env',   variable: 'ENV_FILE'),
+                    file(credentialsId: 'sso_public_pem',  variable: 'PUB_KEY_FILE')
                 ]) {
-                    sh 'cp "$ENV_FILE" .env'
-                    sh 'mkdir -p ssl'
-                    sh 'cp "$PUB_KEY_FILE" ssl/public.pem'
+                    sh 'cp "$ENV_FILE"     .env'
+                    sh 'cp "$PUB_KEY_FILE" public.pem'
                 }
             }
         }
@@ -79,42 +78,44 @@ pipeline {
                 ]) {
                     sh """
                         echo "[INFO] Preparing VPS deployment..."
-                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} "mkdir -p /root/${STACK_NAME}"
+                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} \
+                            "mkdir -p /root/${STACK_NAME}"
 
-                        echo "[INFO] Copying env..."
-                        scp -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no .env root@${VPS_HOST}:/root/${STACK_NAME}/.env
+                        echo "[INFO] Copying .env to VPS..."
+                        scp -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no \
+                            .env root@${VPS_HOST}:/root/${STACK_NAME}/.env
 
-                        echo "[INFO] Deploying Docker service..."
-                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<EOF
+                        echo "[INFO] Deploying to Docker Swarm..."
+                        ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<'EOF'
 set -e
 
-docker swarm init || true
-docker network create --driver overlay ${NETWORK_NAME} || true
+# Init swarm and network if not already done
+docker swarm init 2>/dev/null || true
+docker network create --driver overlay ${NETWORK_NAME} 2>/dev/null || true
 
-if docker service ls | awk '{print \\\$2}' | grep -wq ${STACK_NAME}; then
-    echo "[INFO] Service found. Performing rolling update..."
+if docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
+    echo "[INFO] Service exists — performing rolling update..."
     docker service update \\
         --image ${DOCKER_IMAGE}:${DOCKER_TAG} \\
-        --env-add file=/root/${STACK_NAME}/.env \\
         --update-delay 10s \\
+        --update-order start-first \\
+        --update-failure-action rollback \\
         ${STACK_NAME}
 else
-    echo "[INFO] Service not found. Creating new service..."
+    echo "[INFO] Creating new service..."
     docker service create \\
         --name ${STACK_NAME} \\
         --replicas ${REPLICAS} \\
         --network ${NETWORK_NAME} \\
         --env-file /root/${STACK_NAME}/.env \\
-        --publish ${SERVICE_PORT}:8002 \\
+        --publish ${SERVICE_PORT}:8001 \\
+        --update-delay 10s \\
+        --update-order start-first \\
+        --update-failure-action rollback \\
+        --restart-condition on-failure \\
+        --restart-max-attempts 3 \\
         ${DOCKER_IMAGE}:${DOCKER_TAG}
 fi
-
-echo "[INFO] Running Django Multi-Tenant Migrations..."
-docker run --rm \\
-    --network ${NETWORK_NAME} \\
-    --env-file /root/${STACK_NAME}/.env \\
-    ${DOCKER_IMAGE}:${DOCKER_TAG} \\
-    sh -c "python manage.py migrate_schemas --shared && python manage.py migrate_schemas && python manage.py setup_domain"
 
 echo "[INFO] Deploy success."
 EOF
@@ -126,13 +127,13 @@ EOF
 
     post {
         always {
-            echo 'Pipeline finished!'
+            echo 'Pipeline finished.'
         }
         success {
-            echo 'Deployment successful!'
+            echo "Deployed ${DOCKER_IMAGE}:${DOCKER_TAG} successfully."
         }
         failure {
-            echo 'Pipeline failed.'
+            echo 'Pipeline failed. Check logs above.'
         }
     }
 }

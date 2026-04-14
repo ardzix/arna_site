@@ -1,519 +1,540 @@
-# ArnaSite Production QA Walkthrough
+# ArnaSite — QA Walkthrough
 
-This document describes a safe, step-by-step QA process for ArnaSite in production.
-It is written for a **Postman-oriented** workflow and is designed to minimize risk:
-- use a **dedicated QA tenant** only
-- perform **read-only checks first**
-- allow only a **minimal reversible write** during QA
-- avoid destructive operations unless there is explicit approval
+Dokumen ini adalah panduan QA step-by-step untuk memvalidasi ArnaSite di staging maupun production.
 
-## 1. Purpose
+**Prinsip QA:**
+- Gunakan **dedicated QA tenant** saja — tidak ada akses ke tenant customer
+- **Read-only terlebih dahulu**, write hanya saat diperlukan dan reversible
+- Tidak ada destructive operation tanpa approval eksplisit
 
-Validate that production ArnaSite is healthy across the three exposed API surfaces:
+---
 
-1. **Public Schema** — root domain
-2. **Tenant API** — tenant domain with SSO access token
-3. **Admin API** — tenant domain under `site-admin/api/` with local JWT verification
+## 1. Perubahan Arsitektur dari Versi Sebelumnya
 
-This walkthrough focuses on:
-- reachability
-- authentication and authorization
-- read-only response correctness
-- one minimal reversible write on the dedicated QA tenant
-- storage integration sanity checks
+| Hal | Sebelumnya | Sekarang |
+|-----|-----------|---------|
+| Autentikasi | Dual: SSO round-trip + JWT lokal | **JWT lokal saja** (RS256, offline) |
+| API surface | Tenant API + Admin API (`/site-admin/api/`) | **Satu API terpadu** — RBAC dari JWT claims |
+| Struktur konten | Sections → Blocks → Items | **Pages → Sections → Blocks → Items** |
+| URL prefix | `/api/sites/sections/`, `/api/tenants/current/` | `/api/pages/`, `/api/tenant/` |
+| Port | `8002` | **`8001`** |
+| Register tenant | Manual via shell | `POST /tenants/register/` (public API) |
+| Template | Hanya sistem | Sistem + **tenant bisa buat template sendiri** |
 
-## 2. Safety Rules for Production QA
+---
 
-Before starting, confirm the following:
+## 2. Safety Rules
 
-- You are using a **dedicated QA tenant**.
-- You are **not** testing on a customer tenant.
-- You have approval for the specific QA window.
-- You have the correct token type for each API surface.
-- You will not run destructive actions unless explicitly approved.
+Sebelum mulai, konfirmasi:
 
-### Do not run by default
+- [ ] Menggunakan tenant QA yang didedikasikan (bukan tenant customer)
+- [ ] Ada approval untuk window QA ini
+- [ ] Token yang disiapkan adalah token JWT dari Arna SSO yang valid
+- [ ] Tidak akan menjalankan operasi destruktif tanpa written approval
 
-Avoid these actions in production unless there is a written approval and rollback plan:
+**Operasi yang DILARANG tanpa explicit approval:**
 
-- `overwrite=true` on template apply
-- `DELETE` on sections, blocks, items, profiles, or templates
-- remote storage deletion tests beyond a controlled cleanup
-- bulk CRUD or load tests
-- repeated upload/abort cycles on real production files
+- `overwrite=true` pada apply-template
+- `DELETE` pages, sections, blocks, items, files
+- Publish/unpublish template di lingkungan production customer
+- Upload/abort berulang pada file produksi nyata
 
-## 3. API Surfaces and Base URLs
+---
 
-### Public Schema
+## 3. URL Structure Referensi
 
-- Base URL: `https://<root-domain>`
-- Swagger: `https://<root-domain>/swagger/`
-- Public template endpoints:
-  - `GET /templates/`
-  - `GET /templates/<id>/`
-- Public site rendering endpoint:
-  - `GET /public/site/`
+### Public API (`root-domain`)
 
-### Tenant API
+```
+GET  /templates/                Katalog template (no auth)
+GET  /templates/{id}/           Detail template (no auth)
+POST /tenants/register/         Daftarkan tenant baru (JWT is_owner required)
+GET  /swagger/                  Swagger UI
+```
 
-- Base URL: `https://<tenant-domain>`
-- Swagger: `https://<tenant-domain>/swagger/`
-- Uses SSO access token:
-  - `Authorization: Bearer <arna-sso-access-token>`
+### Tenant API (`tenant-domain`)
 
-Main endpoints:
-- `GET /api/sites/sections/`
-- `POST /api/sites/sections/`
-- `GET /api/sites/sections/<id>/`
-- `PATCH /api/sites/sections/<id>/`
-- `GET /api/sites/blocks/`
-- `POST /api/sites/blocks/`
-- `GET /api/sites/items/`
-- `POST /api/sites/items/`
-- `PATCH /api/sites/sections/reorder/`
-- `POST /api/tenants/current/apply-template/`
-- `GET /api/storage/files/`
-- `POST /api/storage/files/init-upload/`
-- `POST /api/storage/files/<id>/presign/`
-- `POST /api/storage/files/<id>/complete/`
-- `POST /api/storage/files/<id>/abort/`
+```
+# Tenant info
+GET  PATCH  /api/tenant/
+POST        /api/tenant/apply-template/
 
-### Admin API
+# Domains
+GET  POST          /api/domains/
+DELETE             /api/domains/{id}/
 
-- Base URL: `https://<tenant-domain>/site-admin/api/`
-- Swagger: `https://<tenant-domain>/site-admin/api/swagger/`
-- Uses local RS256 JWT:
-  - `Authorization: Bearer <arna-sso-jwt-token>`
+# Templates
+GET  POST          /api/templates/          ?visibility=public|private
+GET  PATCH  DELETE /api/templates/{id}/
+POST  DELETE       /api/templates/{id}/publish/
 
-Main endpoints:
-- `GET /site-admin/api/sections/`
-- `POST /site-admin/api/sections/`
-- `GET /site-admin/api/sections/<id>/`
-- `PATCH /site-admin/api/sections/<id>/`
-- `PATCH /site-admin/api/sections/reorder/`
-- `GET /site-admin/api/blocks/`
-- `POST /site-admin/api/blocks/`
-- `GET /site-admin/api/items/`
-- `POST /site-admin/api/items/`
-- `GET /site-admin/api/storage/`
-- `POST /site-admin/api/storage/init-upload/`
-- `POST /site-admin/api/storage/<id>/presign/`
-- `POST /site-admin/api/storage/<id>/complete/`
-- `POST /site-admin/api/storage/<id>/abort/`
-- `POST /site-admin/api/tenants/current/apply-template/`
+# Files
+GET                /api/files/
+POST               /api/files/init-upload/
+GET  PATCH  DELETE /api/files/{id}/
+POST               /api/files/{id}/presign/
+POST               /api/files/{id}/complete/
+POST               /api/files/{id}/abort/
+
+# Pages (nested recursive)
+GET  POST          /api/pages/
+PATCH              /api/pages/reorder/
+GET  PATCH  DELETE /api/pages/{page_id}/
+GET  POST          /api/pages/{page_id}/sections/
+PATCH              /api/pages/{page_id}/sections/reorder/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/
+GET  POST          /api/pages/{page_id}/sections/{section_id}/blocks/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/
+GET  POST          /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/items/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/items/{item_id}/
+
+# Public (no auth)
+GET  /api/public/site/          Daftar halaman aktif
+GET  /api/public/site/{slug}/   Konten lengkap satu halaman
+```
+
+---
 
 ## 4. Postman Setup
 
-Create or import a Postman collection with three request folders:
+### Environment Variables
 
-1. **Public Schema QA**
-2. **Tenant API QA**
-3. **Admin API QA**
+Buat dua Postman environment: **ArnaSite Public QA** dan **ArnaSite Tenant QA**.
 
-Recommended environments:
-- `ArnaSite Public QA`
-- `ArnaSite Tenant QA`
-- `ArnaSite Admin QA`
+| Variable | Contoh | Keterangan |
+|----------|--------|-----------|
+| `root_url` | `https://app.arnasite.id` | Root domain (public schema) |
+| `tenant_url` | `https://qa.arnasite.id` | Domain tenant QA |
+| `token` | `eyJhbGci...` | JWT dari Arna SSO |
+| `template_id` | `uuid` | ID template untuk apply/test |
+| `page_id` | `uuid` | ID page QA |
+| `section_id` | `uuid` | ID section QA |
+| `block_id` | `uuid` | ID block QA |
+| `item_id` | `uuid` | ID item QA |
+| `file_id` | `uuid` | ID file QA |
 
-### Suggested environment variables
+### Header untuk semua request berautentikasi
 
-| Variable | Example |
-|---|---|
-| `root_base_url` | `https://example.com` |
-| `tenant_base_url` | `https://qa-tenant.example.com` |
-| `admin_base_url` | `https://qa-tenant.example.com/site-admin/api` |
-| `sso_access_token` | `<SSO access token>` |
-| `admin_jwt_token` | `<RS256 JWT token>` |
-| `template_id` | `<uuid>` |
-| `section_id` | `<uuid>` |
-| `block_id` | `<uuid>` |
-| `item_id` | `<uuid>` |
-| `storage_id` | `<uuid>` |
-
-### Common headers
-
-For SSO-based requests:
-- `Authorization: Bearer {{sso_access_token}}`
-- `Content-Type: application/json`
-
-For admin JWT requests:
-- `Authorization: Bearer {{admin_jwt_token}}`
-- `Content-Type: application/json`
-
-### Postman request organization
-
-Put requests in this order:
-1. health and reachability checks
-2. read-only GET checks
-3. auth failure checks
-4. controlled create/update checks
-5. controlled cleanup checks
-
-## 4.1 Local Automated Smoke Test (localhost)
-
-For fast local verification on development machine:
-
-- ArnaSite: `http://localhost:8002`
-- SSO: `http://localhost:8001`
-
-Run the script:
-
-```bash
-cd /Users/aqilamuzafa/Documents/GitHub/arnasite
-bash scripts/qa_local_smoke.sh
+```
+Authorization: Bearer {{token}}
+Content-Type: application/json
 ```
 
-Optional env vars:
+### Token claims yang diperlukan
 
-```bash
-SSO_BASE_URL=http://localhost:8001 \
-ARNASITE_BASE_URL=http://localhost:8002 \
-RUN_TENANT_ADMIN_CHECKS=1 \
-AUTO_SSO_AUTH=1 \
-AUTO_ADMIN_JWT_FROM_SSO=1 \
-SSO_ORG_ID='<organization-uuid-optional>' \
-TENANT_HOST='qa.localhost' \
-SSO_TEST_EMAIL='qa_smoke_user@example.com' \
-SSO_TEST_PASSWORD='SmokeTest123!' \
-SSO_ACCESS_TOKEN='<sso-access-token>' \
-ADMIN_JWT_TOKEN='<admin-jwt-token>' \
-bash scripts/qa_local_smoke.sh
+Sebelum mulai, decode token dan pastikan:
+- `org_id` terisi (bukan null) — harus terdaftar sebagai tenant
+- `is_owner: true` **atau** `roles: ["site_admin"]` — untuk write operations
+- `exp` belum lewat
+
+```js
+// Decode di browser console
+JSON.parse(atob('{{token}}'.split('.')[1]))
 ```
 
-Notes:
-- The script is API-only: it does not call `python manage.py shell` or touch the DB directly.
-- Without token env vars, script can still run public read-only checks and SSO login/register.
-- Tenant/Admin API checks are opt-in: set `RUN_TENANT_ADMIN_CHECKS=1`.
-- Tenant/Admin checks require a preconfigured routable tenant host in `TENANT_HOST`.
-- `AUTO_ADMIN_JWT_FROM_SSO=1` derives `ADMIN_JWT_TOKEN` from SSO token automatically.
-- If `SSO_ORG_ID` is set, script calls `POST /api/organizations/current/` to mint org-context token.
-- Do not pass placeholder values like `<your-org-uuid>`; use a real UUID.
-- If org switch fails, script falls back to current SSO access token for admin checks.
-- With tokens provided, script validates authenticated tenant/admin endpoints.
-- Script exits non-zero when any check fails.
-- If tenant routes are not mounted for `TENANT_HOST`, tenant/admin checks are skipped (not failed).
+---
 
-## 4.2 Negative Testing & Edge Cases
+## 5. QA Checklist — Public API
 
-The local QA script also includes a negative test mode to validate that invalid input and unauthorized access are rejected correctly.
+Base URL: `{{root_url}}`
 
-Representative negative cases:
+### 5.1 Swagger UI
 
-- `POST /api/auth/register/` with missing email → `400`
-- `POST /api/auth/register/` with invalid email → `400`
-- `POST /api/auth/login/` with wrong password → `400`
-- `GET /api/auth/me/` with invalid token → `401`
-- `GET /templates/not-a-uuid/` → `404`
-- `POST /api/tenants/current/apply-template/` with empty body → `400`
-- `PATCH /api/sites/sections/reorder/` with invalid body → `400`
-- `GET /site-admin/api/sections/` without JWT → `401`
-- Admin JWT with wrong audience → `401`
-- Admin JWT missing `org_id` → `401`
-- Admin JWT with tampered signature → `401`
+| # | Request | Expected |
+|---|---------|---------|
+| 1 | `GET {{root_url}}/swagger/` | 200, Swagger UI terbuka |
+| 2 | Cek endpoint list | Hanya tampil: `/templates/`, `/tenants/register/` |
+| 3 | Cek tombol Authorize | Hanya ada form **Bearer** (tidak ada Basic Auth) |
+| 4 | Cek security definition | `Bearer: apiKey in header` |
 
-Run negative mode together with smoke mode by leaving `RUN_NEGATIVE_CHECKS=1`.
+### 5.2 Template Catalog
 
-## 5. Step-by-Step QA Checklist
+| # | Request | Expected |
+|---|---------|---------|
+| 5 | `GET {{root_url}}/templates/` | 200, array of templates |
+| 6 | Verifikasi struktur | Setiap item punya `pages[].sections[].blocks[]` |
+| 7 | `GET {{root_url}}/templates/{{template_id}}/` | 200, detail template lengkap |
+| 8 | `GET {{root_url}}/templates/invalid-uuid/` | 404 |
+| 9 | Pastikan hanya `is_published=true` muncul | Tidak ada template private di daftar |
 
-## 5.1 Public Schema QA
+### 5.3 Tenant Register (no auth test)
 
-### Step 1 — Open Swagger
+| # | Request | Expected |
+|---|---------|---------|
+| 10 | `POST {{root_url}}/tenants/register/` tanpa token | 401 `Bearer token required` |
+| 11 | `POST {{root_url}}/tenants/register/` dengan token yang `org_id=null` | 403 `Token tidak menyertakan org_id...` |
+| 12 | `POST {{root_url}}/tenants/register/` dengan `is_owner=false` | 403 `Hanya owner organisasi...` |
 
-Request:
-- `GET {{root_base_url}}/swagger/`
+---
 
-Expected:
-- Swagger UI loads successfully
-- only public schema endpoints are visible
-- no `site-admin/api` endpoints appear
+## 6. QA Checklist — Tenant API
 
-### Step 2 — List templates
+Base URL: `{{tenant_url}}`
 
-Request:
-- `GET {{root_base_url}}/templates/`
+### 6.1 Swagger UI
 
-Expected:
-- status `200`
-- returns list of active templates
-- response contains no tenant-private data
+| # | Request | Expected |
+|---|---------|---------|
+| 13 | `GET {{tenant_url}}/swagger/` | 200, Swagger UI terbuka |
+| 14 | Cek endpoint list | Tampil: `/api/pages/`, `/api/tenant/`, `/api/templates/`, `/api/files/`, `/api/public/` |
+| 15 | Tidak ada endpoint `/site-admin/` | ✅ harus tidak ada |
 
-### Step 3 — View template detail
+### 6.2 Autentikasi — Negative Tests
 
-Request:
-- `GET {{root_base_url}}/templates/{{template_id}}/`
+| # | Request | Expected |
+|---|---------|---------|
+| 16 | `GET {{tenant_url}}/api/pages/` tanpa header | 401 |
+| 17 | `GET {{tenant_url}}/api/pages/` dengan token `Bearer invalid` | 401 `Invalid or expired JWT token` |
+| 18 | `GET {{tenant_url}}/api/pages/` dengan token org lain | 403 (IsTenantMember gagal) |
 
-Expected:
-- status `200`
-- returns nested template structure
-- includes sections, blocks, and list items
+### 6.3 Tenant Info (Read)
 
-### Step 4 — Public site render endpoint
+| # | Request | Expected |
+|---|---------|---------|
+| 19 | `GET {{tenant_url}}/api/tenant/` | 200, `name`, `slug`, `schema_name`, `domains[]` |
+| 20 | `GET {{tenant_url}}/api/domains/` | 200, list domain tenant |
 
-Request:
-- `GET {{tenant_base_url}}/public/site/`
+### 6.4 Pages (Read)
 
-Expected:
-- status `200`
-- returns tenant name/slug plus active sections
-- no authentication required
+| # | Request | Expected |
+|---|---------|---------|
+| 21 | `GET {{tenant_url}}/api/pages/` | 200, list pages |
+| 22 | `GET {{tenant_url}}/api/pages/{{page_id}}/` | 200, detail page dengan `sections[]` embed |
+| 23 | Verifikasi scoping | Data hanya milik tenant QA, tidak ada data tenant lain |
 
-## 5.2 Tenant API QA
+### 6.5 Sections (Read Nested)
 
-### Step 1 — Open tenant Swagger
+| # | Request | Expected |
+|---|---------|---------|
+| 24 | `GET {{tenant_url}}/api/pages/{{page_id}}/sections/` | 200, list sections |
+| 25 | `GET {{tenant_url}}/api/pages/{{page_id}}/sections/{{section_id}}/` | 200, detail section |
+| 26 | `GET {{tenant_url}}/api/pages/invalid-uuid/sections/` | 404 |
 
-Request:
-- `GET {{tenant_base_url}}/swagger/`
+### 6.6 Blocks & Items (Read Nested)
 
-Expected:
-- Swagger UI loads successfully
-- only tenant-facing API endpoints are visible
-- no admin routes are shown
+| # | Request | Expected |
+|---|---------|---------|
+| 27 | `GET {{tenant_url}}/api/pages/{{page_id}}/sections/{{section_id}}/blocks/` | 200 |
+| 28 | `GET {{tenant_url}}/api/pages/{{page_id}}/sections/{{section_id}}/blocks/{{block_id}}/` | 200 |
+| 29 | `GET {{tenant_url}}/api/pages/{{page_id}}/sections/{{section_id}}/blocks/{{block_id}}/items/` | 200 |
 
-### Step 2 — Read-only section list
+### 6.7 Templates (Browse)
 
-Request:
-- `GET {{tenant_base_url}}/api/sites/sections/`
+| # | Request | Expected |
+|---|---------|---------|
+| 30 | `GET {{tenant_url}}/api/templates/` | 200, semua template (public + milik tenant) |
+| 31 | `GET {{tenant_url}}/api/templates/?visibility=public` | 200, hanya `is_published=true` |
+| 32 | `GET {{tenant_url}}/api/templates/?visibility=private` | 200, hanya milik tenant ini |
 
-Expected:
-- status `200`
-- returns only tenant data for the dedicated QA tenant
+### 6.8 Files (Read)
 
-### Step 3 — Read-only block list with filter
+| # | Request | Expected |
+|---|---------|---------|
+| 33 | `GET {{tenant_url}}/api/files/` | 200, list media references |
+| 34 | `GET {{tenant_url}}/api/files/{{file_id}}/` | 200, detail file |
 
-Request:
-- `GET {{tenant_base_url}}/api/sites/blocks/?section={{section_id}}`
+### 6.9 Public Site (No Auth)
 
-Expected:
-- status `200`
-- returns blocks for the selected section only
+| # | Request | Expected |
+|---|---------|---------|
+| 35 | `GET {{tenant_url}}/api/public/site/` | 200 tanpa Authorization header |
+| 36 | Verifikasi struktur | `{ tenant: {...}, pages: [...] }` |
+| 37 | `GET {{tenant_url}}/api/public/site/home/` | 200, konten lengkap halaman home |
+| 38 | Verifikasi struktur page | `sections[].blocks[].items[]` |
+| 39 | `GET {{tenant_url}}/api/public/site/tidak-ada/` | 404 |
+| 40 | Verifikasi `is_active=false` section tidak muncul | ✅ hanya section aktif |
 
-### Step 4 — Read-only item list with filter
+---
 
-Request:
-- `GET {{tenant_base_url}}/api/sites/items/?block={{block_id}}`
+## 7. QA Checklist — Write Operations (Minimal, Reversible)
 
-Expected:
-- status `200`
-- returns items for the selected block only
+Lakukan hanya pada dedicated QA tenant. Catat semua ID yang dibuat untuk cleanup.
 
-### Step 5 — Validate authorization failures
+### 7.1 Create Page
 
-Run the same request without token.
-
-Expected:
-- status `401`
-
-Run the same request with a token from the wrong tenant or invalid token.
-
-Expected:
-- status `403` or `401` depending on failure mode
-
-### Step 6 — Minimal reversible write
-
-Use only the dedicated QA tenant.
-
-Recommended action:
-- create one section or one block
-- update its title/order once
-- verify it appears in GET responses
-- revert or delete only if the team has approval for cleanup
-
-Example request:
-- `POST {{tenant_base_url}}/api/sites/sections/`
-
-Expected:
-- status `201`
-- object belongs to the QA tenant only
-
-### Step 7 — Reorder sanity check
-
-Request:
-- `PATCH {{tenant_base_url}}/api/sites/sections/reorder/`
-
-Example body:
 ```json
+POST {{tenant_url}}/api/pages/
+{
+  "title": "QA Test Page",
+  "is_active": true,
+  "order": 99
+}
+```
+
+| Expected | |
+|----------|--|
+| Status | 201 |
+| Response | `{ id, title, slug: "qa-test-page", ... }` |
+| Verifikasi | Muncul di `GET /api/pages/` |
+
+Simpan `page_id` dari response.
+
+### 7.2 Create Section di Page
+
+```json
+POST {{tenant_url}}/api/pages/{{new_page_id}}/sections/
+{
+  "type": "hero",
+  "order": 1,
+  "is_active": true
+}
+```
+
+| Expected | |
+|----------|--|
+| Status | 201 |
+| Verifikasi | `section.page == new_page_id` |
+
+### 7.3 Create Block di Section
+
+```json
+POST {{tenant_url}}/api/pages/{{new_page_id}}/sections/{{new_section_id}}/blocks/
+{
+  "title": "QA Hero Title",
+  "subtitle": "QA subtitle",
+  "order": 1
+}
+```
+
+| Expected | |
+|----------|--|
+| Status | 201 |
+
+### 7.4 Create Item di Block
+
+```json
+POST {{tenant_url}}/api/pages/{{new_page_id}}/sections/{{new_section_id}}/blocks/{{new_block_id}}/items/
+{
+  "title": "QA Feature",
+  "icon": "check",
+  "order": 1
+}
+```
+
+| Expected | |
+|----------|--|
+| Status | 201 |
+| Verifikasi | Item muncul di `GET .../blocks/{{id}}/items/` |
+
+### 7.5 Reorder Pages
+
+```json
+PATCH {{tenant_url}}/api/pages/reorder/
 [
-  {"id": "<section-uuid>", "order": 1},
-  {"id": "<section-uuid>", "order": 2}
+  {"id": "{{new_page_id}}", "order": 98}
 ]
 ```
 
-Expected:
-- status `200`
-- order changes are reflected in subsequent GET requests
+| Expected | |
+|----------|--|
+| Status | 200, `{ "status": "reordered" }` |
+| Verifikasi | Order berubah di GET list |
 
-### Step 8 — Template apply check
+### 7.6 Reorder Sections
 
-Only do this if the QA tenant is empty or designed for template QA.
-
-Request:
-- `POST {{tenant_base_url}}/api/tenants/current/apply-template/`
-
-Body:
 ```json
+PATCH {{tenant_url}}/api/pages/{{new_page_id}}/sections/reorder/
+[
+  {"id": "{{new_section_id}}", "order": 2}
+]
+```
+
+| Expected | |
+|----------|--|
+| Status | 200 |
+
+### 7.7 Unauthorized Write Test
+
+```json
+POST {{tenant_url}}/api/pages/
+Authorization: Bearer <token_dengan_role_kosong_tapi_valid>
+```
+
+| Expected | |
+|----------|--|
+| Status | 403 (IsTenantAdmin / IsTenantOwner gagal) |
+
+### 7.8 Apply Template (hanya jika QA tenant kosong)
+
+```json
+POST {{tenant_url}}/api/tenant/apply-template/
 {
   "template_id": "{{template_id}}",
   "overwrite": false
 }
 ```
 
-Expected:
-- status `200`
-- template is applied successfully
-- no existing QA data is lost
+| Expected | |
+|----------|--|
+| Status | 200, `{ "status": "template applied successfully" }` |
+| Verifikasi | `GET /api/pages/` mengembalikan pages dari template |
+| Catatan | Jika tenant sudah punya konten: 409 Conflict → jangan gunakan `overwrite: true` di production |
 
-Do not use `overwrite: true` unless explicitly approved.
+### 7.9 Storage — Init Upload
 
-## 5.3 Admin API QA
+```json
+POST {{tenant_url}}/api/files/init-upload/
+{
+  "filename": "qa-test.png",
+  "mime_type": "image/png",
+  "size_bytes": 1024,
+  "owner_scope": "org",
+  "visibility": "private"
+}
+```
 
-### Step 1 — Open admin Swagger
+| Expected | |
+|----------|--|
+| Status | 201 |
+| Response | `{ reference_id, multipart: { upload_id, parts: [{part_number, presign_url}] }, url }` |
 
-Request:
-- `GET {{admin_base_url}}/swagger/`
+### 7.10 Storage — Abort (cleanup test artifact)
 
-Expected:
-- Swagger UI loads successfully
-- only admin API routes are shown
+```json
+POST {{tenant_url}}/api/files/{{reference_id}}/abort/
+```
 
-### Step 2 — Validate admin authorization
+| Expected | |
+|----------|--|
+| Status | 200, `{ "status": "aborted" }` |
 
-Use a valid admin JWT token.
+---
 
-Request:
-- `GET {{admin_base_url}}/sections/`
+## 8. QA Checklist — Template Management
 
-Expected:
-- status `200`
-- response scoped to the current tenant
+### 8.1 Buat Template Private
 
-Use a non-admin token.
+```json
+POST {{tenant_url}}/api/templates/
+{
+  "name": "QA Test Template",
+  "slug": "qa-test-template",
+  "description": "Template untuk QA",
+  "category": "test"
+}
+```
 
-Expected:
-- status `403`
+| Expected | |
+|----------|--|
+| Status | 201 |
+| `is_published` | `false` |
+| `source_tenant_schema` | schema tenant QA |
 
-Use no token.
+### 8.2 Verifikasi Tidak Muncul di Katalog Public
 
-Expected:
-- status `401`
+| # | Request | Expected |
+|---|---------|---------|
+| | `GET {{root_url}}/templates/` | Template QA tidak muncul |
+| | `GET {{tenant_url}}/api/templates/?visibility=private` | Template QA muncul |
 
-### Step 3 — List blocks and items
+### 8.3 Publish Template
 
-Requests:
-- `GET {{admin_base_url}}/blocks/`
-- `GET {{admin_base_url}}/items/`
+```json
+POST {{tenant_url}}/api/templates/{{qa_template_id}}/publish/
+```
 
-Expected:
-- status `200`
-- only QA tenant data is visible
+| Expected | |
+|----------|--|
+| Status | 200, `{ "status": "published", "is_published": true }` |
+| Verifikasi | Muncul di `GET {{root_url}}/templates/` |
 
-### Step 4 — Minimal admin write
+### 8.4 Unpublish Template (cleanup)
 
-Recommended reversible action:
-- create one section
-- update its title or order
-- verify the result in GET responses
+```json
+DELETE {{tenant_url}}/api/templates/{{qa_template_id}}/publish/
+```
 
-Example request:
-- `POST {{admin_base_url}}/sections/`
+| Expected | |
+|----------|--|
+| Status | 200, `{ "status": "unpublished", "is_published": false }` |
+| Verifikasi | Tidak muncul lagi di `GET {{root_url}}/templates/` |
 
-Expected:
-- status `201`
-- object belongs to the QA tenant only
+---
 
-### Step 5 — Reorder check
+## 9. Cleanup
 
-Request:
-- `PATCH {{admin_base_url}}/sections/reorder/`
+Setelah QA selesai, hapus semua artefak QA:
 
-Expected:
-- status `200`
-- order is updated atomically
+```
+DELETE {{tenant_url}}/api/pages/{{new_page_id}}/
+  → CASCADE menghapus sections, blocks, items
 
-### Step 6 — Storage sanity check
+DELETE {{tenant_url}}/api/templates/{{qa_template_id}}/
 
-Request:
-- `GET {{admin_base_url}}/storage/`
+# File yang di-abort sudah bersih di S3, tidak perlu delete record
+```
 
-Expected:
-- status `200`
-- returns media references for the QA tenant only
+Catat:
+- ID semua objek yang dibuat
+- Apakah semua berhasil dihapus
+- Jika ada yang tidak bisa dihapus, escalate
 
-### Step 7 — Storage upload flow, only if required
+---
 
-Use only if QA needs to validate file upload integration.
+## 10. Response Validation Checklist
 
-Flow:
-1. `POST {{admin_base_url}}/storage/init-upload/`
-2. `POST {{admin_base_url}}/storage/<id>/presign/`
-3. `POST {{admin_base_url}}/storage/<id>/complete/`
-4. `POST {{admin_base_url}}/storage/<id>/abort/` only for cleanup of a failed test
+Untuk setiap response, verifikasi:
 
-Expected:
-- init upload returns `201`
-- presign returns `200`
-- complete returns updated media reference
-- abort returns `200`
+- [ ] HTTP status sesuai ekspektasi
+- [ ] Data hanya milik tenant QA (tidak ada data tenant lain)
+- [ ] Tidak ada endpoint `/site-admin/api/` yang muncul di Swagger manapun
+- [ ] Swagger Authorize hanya menampilkan form **Bearer** (tidak ada Basic Auth)
+- [ ] Error response format: `{ "error": "..." }` atau `{ "detail": "..." }`
+- [ ] Nested URL constraint bekerja (section di page lain → 404)
 
-Avoid testing remote deletion in production unless explicitly approved.
+---
 
-## 6. Response Validation Checklist
+## 11. Evidence yang Harus Dikumpulkan
 
-For every request, confirm:
+Untuk sign-off, kumpulkan:
 
-- HTTP status is expected
-- response is scoped to the correct tenant
-- no cross-tenant data appears
-- no admin route appears in public Swagger
-- no public route appears in admin Swagger
-- IDs returned by create calls belong to the QA tenant only
+- [ ] Screenshot Swagger public (`/swagger/`) — hanya tampil public endpoints
+- [ ] Screenshot Swagger tenant (`/swagger/`) — hanya tampil tenant endpoints
+- [ ] Request/response dari minimal write test (create page + section + block + item)
+- [ ] Request/response dari negative auth tests (401, 403)
+- [ ] Request/response dari public site read (`/api/public/site/{slug}/`)
+- [ ] Log cleanup (ID yang dibuat dan dikonfirmasi terhapus)
+- [ ] Timestamp tiap step
+- [ ] Domain tenant yang digunakan
+- [ ] Claims JWT yang digunakan (cukup `org_id`, `is_owner`, `roles` — jangan expose full token)
 
-## 7. Cleanup and Rollback
+---
 
-After the QA session:
+## 12. Sign-Off Checklist
 
-- revert any temporary section/block/item created for QA
-- confirm ordering is restored if it was changed
-- abort unfinished uploads only for test artifacts
-- record which objects were created and removed
-- note any failed requests and the response body
+QA dinyatakan selesai hanya jika semua item berikut terpenuhi:
 
-If a destructive action was performed accidentally:
-1. stop further changes
-2. capture the exact request and response
-3. escalate immediately
-4. verify whether data restoration is required
+| Item | Status |
+|------|--------|
+| Public Swagger terbuka dan hanya tampil endpoint publik | |
+| Tenant Swagger terbuka dan hanya tampil endpoint tenant | |
+| Tidak ada endpoint `/site-admin/api/` di manapun | |
+| Authorize Swagger hanya menampilkan Bearer (tidak Basic Auth) | |
+| JWT valid → akses berhasil | |
+| JWT tanpa `org_id` → 403 dengan pesan jelas | |
+| JWT tanpa auth header → 401 | |
+| Token org lain → 403 (IsTenantMember) | |
+| Member tanpa role → GET berhasil, POST/PATCH/DELETE → 403 | |
+| Owner/admin → semua write berhasil | |
+| `GET /api/public/site/{slug}/` berhasil tanpa auth | |
+| `GET /api/public/site/tidak-ada/` → 404 | |
+| Create page → 201, muncul di list | |
+| Nested section/block/item → 201, data terisolasi per page | |
+| Reorder → 200, urutan berubah | |
+| Storage init-upload → 201 dengan presign URL | |
+| Storage abort → 200 | |
+| Template private tidak muncul di katalog root | |
+| Template publish/unpublish bekerja | |
+| Cleanup semua artefak QA selesai | |
+| Evidence tersimpan | |
 
-## 8. Evidence to Capture
+---
 
-Capture the following evidence for sign-off:
+## 13. Catatan untuk Operator
 
-- screenshots of both Swagger UIs
-- request/response examples from Postman
-- timestamps for each step
-- tenant domain used
-- token type used
-- any error responses from auth checks
-- before/after counts for created objects
-
-## 9. QA Sign-off Checklist
-
-Mark the QA as complete only if all of the following are true:
-
-- public Swagger opens and shows only public endpoints
-- tenant Swagger opens and shows only tenant API endpoints
-- admin Swagger opens and shows only admin API endpoints
-- SSO access token works for tenant API requests
-- admin JWT works for admin API requests
-- unauthenticated requests fail as expected
-- unauthorized requests fail as expected
-- minimal write test succeeds on the dedicated QA tenant
-- cleanup is completed
-- evidence is saved
-
-## 10. Notes for Operators
-
-- Use the dedicated QA tenant only.
-- Keep the test surface small.
-- Prefer read-only validation over write validation.
-- Treat template overwrite and deletes as production-risk operations.
-- If anything unexpected happens, stop and escalate.
+- **Jangan pernah** gunakan tenant customer untuk QA.
+- Selalu gunakan token dengan `org_id` yang sesuai dengan tenant QA.
+- Jika ada 500 error → cek server log sebelum melanjutkan.
+- Jika Redis tidak tersedia → JWT tetap berfungsi (fallback tanpa cache), catat sebagai warning.
+- `overwrite=true` pada apply-template adalah **operasi destruktif** — butuh explicit approval.
+- Jika ada behavior yang tidak terduga, **stop dan escalate** sebelum melanjutkan.

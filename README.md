@@ -1,64 +1,44 @@
-
-## Yang Belum Selesai / Masih Perlu Keputusan
-
-### A) Kebijakan owner vs site_admin
-Status: PENDING DECISION
-- Kondisi saat ini: owner ATAU site_admin bisa akses admin API.
-- Lokasi: sites/admin_views.py (IsTenantAdmin | IsTenantOwner)
-- Jika keputusan final adalah owner dan admin dipisah, maka policy ini harus diubah menjadi hanya IsTenantAdmin.
-
-### B) Konsistensi path admin API
-Status: PENDING ALIGNMENT
-- Kondisi saat ini: prefix endpoint admin adalah /site-admin/api/.
-- PRD bersifat endpoint-level dan tidak mengunci prefix khusus admin.
-- Perlu diputuskan final agar frontend/integrasi tidak mismatch.
-
-### C) Tenant domain rollout di production
-Status: NOT DONE
-- PRD mewajibkan tenant resolution via subdomain/custom domain.
-- Artinya record Domain pada public schema harus lengkap dan selaras dengan DNS/ingress production.
-
-### D) End-to-end QA 
-Status: NOT DONE
-- Belum dilakukan QA end-to-end lengkap dari login SSO -> akses tenant/admin API -> upload storage -> public rendering per tenant domain.
-- QA checklist lintas service (Arna SSO, ArnaSite, Arna Storage) masih perlu eksekusi final dan sign-off.
-
 # ArnaSite
 
-A **multi-tenant website CMS backend** built with Django and django-tenants. Each organization gets an isolated PostgreSQL schema. Content managers interact via a standard tenant API (SSO token → /auth/me validation), while tenant administrators get a dedicated Admin API secured by **local RS256 JWT verification** — no SSO round-trip per request.
+Multi-tenant website CMS backend built with Django and django-tenants. Each organization (tenant) gets an **isolated PostgreSQL schema**, a dedicated subdomain, and a full CMS API to manage their website content.
+
+Authentication is handled entirely offline via **RS256 JWT tokens** issued by Arna SSO — no SSO round-trip on every request.
+
+---
 
 ## Table of Contents
 
-- [Features](#features)
+- [How It Works](#how-it-works)
 - [Technology Stack](#technology-stack)
 - [Architecture Overview](#architecture-overview)
+- [Quick Start (Local)](#quick-start-local)
 - [Quick Start (Docker)](#quick-start-docker)
 - [Environment Variables](#environment-variables)
-- [Authentication](#authentication)
-- [API Reference](#api-reference)
-  - [Public Schema](#public-schema-root-domain)
-  - [Tenant Schema — Tenant API (SSO Auth)](#tenant-schema-tenant-api-sso-auth)
-  - [Tenant Schema — Admin API (JWT Auth)](#tenant-schema-admin-api-jwt-auth)
-- [Swagger / API Docs](#swagger--api-docs)
-- [Production QA Walkthrough](#production-qa-walkthrough)
-- [Running Tests](#running-tests)
+- [Authentication & RBAC](#authentication--rbac)
+- [URL Structure](#url-structure)
 - [Tenant Onboarding](#tenant-onboarding)
-- [Docker Compose Services](#docker-compose-services)
+- [Template System](#template-system)
+- [Running Tests](#running-tests)
 - [Related Services](#related-services)
 
 ---
 
-## Features
+## How It Works
 
-- **Multi-Tenancy** — Each organization gets a fully isolated PostgreSQL schema via django-tenants
-- **Dual Authentication** — SSO proxy auth (for general users) and local JWT verification (for admin endpoints)
-- **Role-Based Admin Access** — `site_admin` role or org owner (`is_owner`) grants admin API access, decoded from JWT claims
-- **CMS Content Management** — Hierarchical Sections → ContentBlocks → ListItems, fully CRUD
-- **Section Reordering** — Bulk atomic reorder endpoint with UUID validation
-- **Template System** — Master templates cloned into tenant schemas on demand, with overwrite protection
-- **File Storage** — S3-backed upload proxy via Arna File Manager (presigned URL flow)
-- **Redis Caching** — SSO user sessions and JWT token resolutions cached to minimize external calls
-- **Auto-Seeding** — Public tenant and default template created automatically on first migration
+```
+1. User logs in to Arna SSO → receives JWT token
+   (token contains: user_id, org_id, roles, is_owner)
+
+2. User sends request to ArnaSite with Bearer token
+   → Middleware routes request to correct PostgreSQL schema based on domain
+   → JWT verified locally using public.pem (RS256, no network call)
+   → RBAC applied from JWT claims
+
+3. Frontend reads /api/public/site/{slug} to render the website
+   → No auth required for public endpoints
+```
+
+**Tenant isolation:** Every tenant (`yapu.arnasite.id`, `tokobudi.arnasite.id`) lives in its own PostgreSQL schema. There is zero data leakage between tenants — even at the DB query level.
 
 ---
 
@@ -69,68 +49,144 @@ A **multi-tenant website CMS backend** built with Django and django-tenants. Eac
 | Django 5 | Web framework |
 | Django REST Framework | API layer |
 | django-tenants | PostgreSQL schema-based multi-tenancy |
-| PyJWT (RS256) | Local JWT verification for Admin API |
-| cryptography | RSA key operations |
-| Redis | Caching (SSO sessions + JWT token cache) |
-| uWSGI + Supervisor | Production app server |
-| drf-yasg | Swagger / OpenAPI documentation |
-| whitenoise | Static file serving |
+| PyJWT (RS256) | Local JWT verification (no SSO round-trip) |
+| psycopg2 | PostgreSQL adapter |
+| Redis | JWT decode result caching |
+| drf-yasg | Swagger / OpenAPI docs |
+| django-cors-headers | CORS handling |
 
 ---
 
 ## Architecture Overview
 
 ```
-                         ┌──────────────────────────────────────┐
-  Browser / Frontend     │            ArnaSite (8002)           │
-  ─────────────────────► │                                      │
-                         │  ┌─────────────┐  ┌──────────────┐  │
-  JWT (from Arna SSO)    │  │  Admin API  │  │  Tenant API  │  │
-  ─────────────────────► │  │  /admin/api │  │  /api/sites  │  │
-                         │  │             │  │              │  │
-                         │  │ JWT decoded │  │ token → SSO  │  │
-                         │  │  locally    │  │  /auth/me    │  │
-                         │  │  (RS256)    │  │              │  │
-                         │  └─────────────┘  └──────────────┘  │
-                         │        ↓                  ↓          │
-                         │  ┌────────────────────────────────┐  │
-                         │  │  Per-tenant PostgreSQL Schema  │  │
-                         │  │  Sections → Blocks → Items     │  │
-                         │  └────────────────────────────────┘  │
-                         └──────────────────────────────────────┘
-                                           ↑
-                              Arna SSO (JWT issuance + /auth/me)
+                    ┌─────────────────────────────────────────────┐
+  Browser /         │              ArnaSite                        │
+  Frontend  ──────► │                                             │
+                    │  Domain routing (TenantMainMiddleware)       │
+  Bearer JWT        │  localhost        → public schema            │
+  from Arna SSO     │  yapu.arnasite.id → yapu schema             │
+                    │                                             │
+                    │  ┌──────────────────────────────────────┐   │
+                    │  │  ArnaJWTAuthentication               │   │
+                    │  │  Decode JWT locally with public.pem  │   │
+                    │  │  Extract: user_id, org_id, roles,    │   │
+                    │  │          is_owner                    │   │
+                    │  └──────────────────────────────────────┘   │
+                    │              ↓                               │
+                    │  ┌──────────────────────────────────────┐   │
+                    │  │  RBAC Permission Classes             │   │
+                    │  │  IsTenantMember  — org member        │   │
+                    │  │  IsTenantAdmin   — has site_admin    │   │
+                    │  │  IsTenantOwner   — is_owner=true     │   │
+                    │  └──────────────────────────────────────┘   │
+                    │              ↓                               │
+                    │  ┌──────────────────────────────────────┐   │
+                    │  │  Per-tenant PostgreSQL Schema        │   │
+                    │  │  Pages → Sections → Blocks → Items  │   │
+                    │  └──────────────────────────────────────┘   │
+                    └─────────────────────────────────────────────┘
+                                       ↑
+                          Arna SSO (JWT issuance, RS256)
+                          Arna File Manager (S3 storage)
 ```
+
+**Data model hierarchy:**
+
+```
+[Public Schema]
+Template
+└── TemplatePage
+    └── TemplateSection
+        └── TemplateBlock
+            └── TemplateListItem
+
+[Tenant Schema]
+Page  (slug: "home", "about", "pricing", ...)
+└── Section  (type: "hero", "features", "team", ...)
+    └── ContentBlock  (title, subtitle, description, image_url, extra:{})
+        └── ListItem  (title, description, icon)
+```
+
+---
+
+## Quick Start (Local)
+
+### Prerequisites
+
+- Python 3.12+
+- PostgreSQL 15+
+- Redis (optional — degrades gracefully if unavailable)
+
+### Setup
+
+```bash
+# 1. Clone
+git clone https://github.com/ardzix/arna_site.git && cd arna_site
+
+# 2. Create virtualenv using official Python (not MinGW/MSYS2)
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+# 3. Install dependencies (skip uWSGI on Windows)
+pip install -r requirements.txt
+
+# 4. Copy and configure environment
+cp .env.example .env
+# Edit .env — minimum required: DB_*, SECRET_KEY, SSO_JWT_PUBLIC_KEY_PATH
+
+# 5. Place the Arna SSO public key
+cp /path/to/arna_sso/public.pem public.pem
+# SSO_JWT_PUBLIC_KEY_PATH=public.pem  ← relative to project root (auto-resolved)
+
+# 6. Run migrations
+python manage.py migrate_schemas
+
+# 7. Seed initial data (public tenant + test tenant + localhost domain)
+python manage.py seed_tenant
+
+# 8. Start the server
+python manage.py runserver 8000
+```
+
+### Accessing Swagger
+
+| URL | Schema | Covers |
+|-----|--------|--------|
+| `http://localhost:8000/swagger/` | Public | `/templates/`, `/tenants/register/` |
+| `http://test.localhost:8000/swagger/` | Tenant | All CMS + storage + template endpoints |
+| `http://yapu.localhost:8000/swagger/` | Tenant | (after registering yapu tenant) |
+
+> **Windows hosts file** (`C:\Windows\System32\drivers\etc\hosts`):
+> ```
+> 127.0.0.1   test.localhost
+> 127.0.0.1   yapu.localhost
+> ```
 
 ---
 
 ## Quick Start (Docker)
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/ardzix/arna_site.git && cd arna_site
-
-# 2. Copy and configure environment
+# 1. Copy and configure environment
 cp .env.example .env
-# Edit .env to match your setup (see Environment Variables below)
 
-# 3. Place the Arna SSO public key (needed for Admin API JWT verification)
-mkdir -p ssl
-cp /path/to/arna_sso/public.pem ssl/public.pem
+# 2. Place the Arna SSO public key
+cp /path/to/arna_sso/public.pem public.pem
 
-# 4. Start all services
+# 3. Start all services
 docker-compose up -d --build
 
-# 5. Run database migrations (creates all schemas)
+# 4. Run migrations + seed
 docker exec arna_site_web python manage.py migrate_schemas
+docker exec arna_site_web python manage.py seed_tenant
 
-# 6. Confirm it's running
-curl http://localhost:8002/templates/
+# 5. Confirm
+curl http://localhost:8000/templates/
 ```
-
-The API is now available at **http://localhost:8002**.
-Swagger UI (tenant API): **http://localhost:8002/swagger/**
-Swagger UI (admin API): **http://localhost:8002/site-admin/api/swagger/**
 
 ---
 
@@ -140,352 +196,221 @@ Swagger UI (admin API): **http://localhost:8002/site-admin/api/swagger/**
 |----------|---------|-------------|
 | `SECRET_KEY` | *(required)* | Django secret key |
 | `DEBUG` | `False` | Enable debug mode |
-| `DB_NAME` | `arna_site` | PostgreSQL database name |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1,.localhost` | Comma-separated |
+| `DB_ENGINE` | `django.db.backends.postgresql` | DB engine |
+| `DB_NAME` | `arna_site_db` | PostgreSQL database name |
 | `DB_USER` | `postgres` | PostgreSQL user |
-| `DB_PASSWORD` | `postgres` | PostgreSQL password |
-| `DB_HOST` | `localhost` | DB host (`postgres` inside Docker) |
+| `DB_PASSWORD` | *(required)* | PostgreSQL password |
+| `DB_HOST` | `localhost` | DB host |
 | `DB_PORT` | `5432` | DB port |
-| `REDIS_URL` | `redis://localhost:6379/1` | Redis connection URL |
-| `ARNA_SSO_BASE_URL` | `https://sso.arnatech.id/api` | Arna SSO base URL |
+| `REDIS_URL` | `redis://127.0.0.1:6379/1` | Redis connection URL |
 | `ARNA_STORAGE_BASE_URL` | `https://storage.arnatech.id` | Arna File Manager base URL |
-| `SSO_USER_CACHE_TTL` | `300` | SSO token→user cache TTL (seconds) |
-| `SSO_JWT_PUBLIC_KEY_PATH` | `/app/ssl/public.pem` | Path to Arna SSO RSA public key (Admin API) |
-| `SSO_JWT_AUDIENCE` | `arnasite` | Expected JWT audience claim |
-| `PUBLIC_DOMAIN_NAME` | `localhost` | Root domain for the public tenant (auto-seeded) |
-| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated allowed hosts |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated CORS origins |
+| `SSO_JWT_PUBLIC_KEY_PATH` | `public.pem` | Path to Arna SSO RSA public key |
+| `SSO_JWT_AUDIENCE` | `arnasite` | Expected JWT audience (optional) |
+| `CORS_ALLOWED_ORIGINS` | `https://app.arnasite.id` | Comma-separated CORS origins |
 
 ---
 
-## Authentication
+## Authentication & RBAC
 
-ArnaSite uses **two authentication backends**, one per API surface:
-
-### 1. `ArnaSSOAuthentication` — Tenant API
-
-Used by `/api/sites/`, `/api/storage/`, `/api/tenants/`.
-
-Flow per request:
-1. Extracts `Authorization: Bearer <token>` from the request.
-2. Calls Arna SSO `/auth/me/` to validate the token and get user info.
-3. Calls `/organizations/current/` to identify the active organization + roles.
-4. Looks up the matching `Tenant` by `sso_organization_id`.
-5. Caches the resolved user object in Redis for `SSO_USER_CACHE_TTL` seconds.
-
-### 2. `ArnaJWTAuthentication` — Admin API
-
-Used exclusively by `/site-admin/api/`.
-
-Flow per request:
-1. Extracts `Authorization: Bearer <token>` from the request.
-2. **Decodes the JWT locally** using the Arna SSO RSA public key (RS256, no network call).
-3. Validates required claims: `exp`, `user_id`, `org_id`, and `aud: arnasite`.
-4. Looks up the matching `Tenant` by `org_id`.
-5. Caches the resolved user in Redis for **60 seconds** (keyed by SHA-256 of the token).
-
-> **Why two backends?** The Admin API is optimized for performance — local JWT decode avoids an SSO round-trip on every request. Trade-off: roles/permissions reflect what was in the token at issuance; stale data is bounded by JWT lifetime.
-
-### Permission Layers (Admin API)
+### Token Flow
 
 ```
-IsAuthenticated         — valid user object present
-  + IsTenantMember      — user's org_id matches current tenant's schema
-  + (IsTenantAdmin      — user has 'site_admin' in JWT roles
-  |  IsTenantOwner)     — OR user.is_owner == True
+FE → Arna SSO login → JWT token
+JWT token → ArnaSite API header: Authorization: Bearer <token>
+ArnaSite → verifies with public.pem (RS256, offline)
+ArnaSite → extracts claims → applies RBAC
 ```
+
+### JWT Claims Used
+
+| Claim | Type | Usage |
+|-------|------|-------|
+| `user_id` | UUID string | User identity |
+| `org_id` | UUID string | Maps to tenant schema |
+| `roles` | string[] | e.g. `["site_admin"]` |
+| `is_owner` | bool | Full tenant ownership |
+| `exp` | timestamp | Token expiry |
+
+### Permission Matrix
+
+| Action | IsTenantMember | IsTenantAdmin | IsTenantOwner |
+|--------|:-:|:-:|:-:|
+| Read content (GET) | ✅ | — | — |
+| Create/edit content (POST/PATCH) | ✅ | ✅ | ✅ |
+| Delete content (DELETE) | ✅ | ✅ | ✅ |
+| Publish template | ✅ | ✅ | ✅ |
+| Manage domains | ✅ | ✅ | ✅ |
 
 ---
 
-## API Reference
+## URL Structure
 
-### Project Structure
+### Public API (`localhost:8000`)
 
 ```
-config/
-├── urls.py              # Root URL dispatcher
-├── admin_urls.py        # Admin API routes (/site-admin/api/)
-└── public_urls.py       # Public schema routes (/templates/)
-
-core/                    # Public schema — tenant & template management
-sites/                   # Tenant schema — CMS content (sections, blocks, items)
-storage/                 # Tenant schema — file upload proxy
-authentication/          # Shared — authentication backends + permissions
+GET  /templates/              List master templates (no auth)
+GET  /templates/{id}/         Template detail (no auth)
+POST /tenants/register/       Register new tenant (is_owner JWT required)
+GET  /swagger/
 ```
 
----
+### Tenant API (`{tenant-domain}:8000`)
 
-### Public Schema (root domain)
-
-Base URL: `http://localhost:8002` (or your root domain)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/templates/` | No | List all master templates |
-| `GET` | `/templates/<id>/` | No | Template detail with full section/block structure |
-| `GET` | `/swagger/` | No | Swagger UI (public API) |
-
----
-
-### Tenant Schema — Tenant API (SSO Auth)
-
-Base URL: `http://<tenant-domain>:8002`
-Auth: `Authorization: Bearer <arna-sso-access-token>`
-
-#### Site Rendering (Public — no auth required)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/site/` | No | Full page structure for public-facing rendering |
-
-#### CMS — Sections
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/sites/sections/` | SSO | List all sections |
-| `POST` | `/api/sites/sections/` | SSO | Create a section |
-| `GET` | `/api/sites/sections/<id>/` | SSO | Section detail |
-| `PATCH` | `/api/sites/sections/<id>/` | SSO | Update a section |
-| `DELETE` | `/api/sites/sections/<id>/` | SSO | Delete a section |
-
-#### CMS — Blocks
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/sites/blocks/` | SSO | List blocks (filter: `?section=<id>`) |
-| `POST` | `/api/sites/blocks/` | SSO | Create a block |
-| `GET/PATCH/DELETE` | `/api/sites/blocks/<id>/` | SSO | Block detail / update / delete |
-| `GET` | `/api/sites/sections/<id>/blocks/` | SSO | Blocks nested under a section |
-| `POST` | `/api/sites/sections/<id>/blocks/` | SSO | Create block under section |
-
-#### CMS — List Items
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/api/sites/items/` | SSO | List items (filter: `?block=<id>`) |
-| `POST` | `/api/sites/items/` | SSO | Create a list item |
-| `GET/PATCH/DELETE` | `/api/sites/items/<id>/` | SSO | Item detail / update / delete |
-| `GET` | `/api/sites/blocks/<id>/items/` | SSO | Items nested under a block |
-
-#### Templates
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/tenants/current/apply-template/` | SSO | Clone a master template into this tenant's schema |
-
-Request body:
-```json
-{
-  "template_id": "<uuid>",
-  "overwrite": false
-}
 ```
+# Tenant info
+GET  PATCH  /api/tenant/
+POST        /api/tenant/apply-template/
 
-Responses: `200 OK` on success, `409 Conflict` if content already exists (use `"overwrite": true` to force).
+# Domains
+GET  POST          /api/domains/
+DELETE             /api/domains/{id}/
 
-#### Storage
+# Templates
+GET  POST          /api/templates/          ?visibility=public|private
+GET  PATCH  DELETE /api/templates/{id}/
+POST  DELETE       /api/templates/{id}/publish/
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/storage/files/init-upload/` | SSO | Initialize S3 presigned upload |
-| `POST` | `/api/storage/files/<id>/confirm-upload/` | SSO | Mark upload as complete |
-| `GET` | `/api/storage/files/` | SSO | List all media references |
-| `GET` | `/api/storage/files/<id>/` | SSO | Media reference detail |
+# Files (S3 via Arna File Manager)
+GET                /api/files/
+POST               /api/files/init-upload/
+GET  PATCH  DELETE /api/files/{id}/
+POST               /api/files/{id}/presign/
+POST               /api/files/{id}/complete/
+POST               /api/files/{id}/abort/
 
-Init upload request body:
-```json
-{
-  "display_name": "company-logo.png",
-  "mime_type": "image/png",
-  "size_bytes": 204800
-}
+# Pages (recursive)
+GET  POST          /api/pages/
+PATCH              /api/pages/reorder/
+GET  PATCH  DELETE /api/pages/{page_id}/
+GET  POST          /api/pages/{page_id}/sections/
+PATCH              /api/pages/{page_id}/sections/reorder/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/
+GET  POST          /api/pages/{page_id}/sections/{section_id}/blocks/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/
+GET  POST          /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/items/
+GET  PATCH  DELETE /api/pages/{page_id}/sections/{section_id}/blocks/{block_id}/items/{item_id}/
+
+# Public (no auth)
+GET  /api/public/site/          List active pages
+GET  /api/public/site/{slug}/   Full page content (sections → blocks → items)
 ```
-
----
-
-### Tenant Schema — Admin API (JWT Auth)
-
-Base URL: `http://<tenant-domain>:8002/site-admin/api/`
-Auth: `Authorization: Bearer <arna-sso-jwt-token>`
-Required role: **`site_admin`** in JWT `roles` claim, or **`is_owner: true`**
-
-> **Swagger UI:** [`/site-admin/api/swagger/`](http://localhost:8002/site-admin/api/swagger/)
-
-This API surface is identical in capability to the Tenant API but uses **local JWT decode** — no SSO round-trip per request. Intended for use by admin dashboards and content management tools.
-
-#### Admin — Sections
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/site-admin/api/sections/` | JWT Admin | List all sections |
-| `POST` | `/site-admin/api/sections/` | JWT Admin | Create a section |
-| `GET` | `/site-admin/api/sections/<id>/` | JWT Admin | Section detail |
-| `PATCH` | `/site-admin/api/sections/<id>/` | JWT Admin | Update a section |
-| `DELETE` | `/site-admin/api/sections/<id>/` | JWT Admin | Delete a section |
-| `PATCH` | `/site-admin/api/sections/reorder/` | JWT Admin | Bulk reorder sections |
-
-Reorder request body:
-```json
-[
-  { "id": "<section-uuid>", "order": 1 },
-  { "id": "<section-uuid>", "order": 2 }
-]
-```
-
-#### Admin — Content Blocks
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/site-admin/api/blocks/` | JWT Admin | List blocks (filter: `?section=<id>`) |
-| `POST` | `/site-admin/api/blocks/` | JWT Admin | Create a block |
-| `GET/PATCH/DELETE` | `/site-admin/api/blocks/<id>/` | JWT Admin | Block detail / update / delete |
-
-#### Admin — List Items
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/site-admin/api/items/` | JWT Admin | List items (filter: `?block=<id>`) |
-| `POST` | `/site-admin/api/items/` | JWT Admin | Create a list item |
-| `GET/PATCH/DELETE` | `/site-admin/api/items/<id>/` | JWT Admin | Item detail / update / delete |
-
-#### Admin — Storage
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/site-admin/api/storage/init-upload/` | JWT Admin | Initialize S3 presigned upload |
-| `POST` | `/site-admin/api/storage/<id>/confirm-upload/` | JWT Admin | Confirm upload |
-| `GET` | `/site-admin/api/storage/` | JWT Admin | List all media references |
-
-#### Admin — Template Application
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/site-admin/api/tenants/current/apply-template/` | JWT Admin | Apply master template to tenant |
-
-Request body:
-```json
-{
-  "template_id": "<uuid>",
-  "overwrite": false
-}
-```
-
-#### Admin API — Error Reference
-
-| HTTP | Scenario |
-|------|----------|
-| `401` | Missing or invalid JWT token |
-| `401` | Expired token |
-| `401` | Wrong audience (`aud` claim ≠ `arnasite`) |
-| `401` | RS256 signature mismatch (wrong key) |
-| `401` | Missing required claims (`user_id`, `org_id`, `exp`) |
-| `403` | Valid token but `org_id` doesn't match current tenant |
-| `403` | Valid token but no `site_admin` role and not `is_owner` |
-| `404` | Template ID not found |
-| `409` | Template already applied (use `overwrite: true`) |
-
----
-
-## Swagger / API Docs
-
-Two separate Swagger UIs are available:
-
-| UI | URL | Covers |
-|----|-----|--------|
-| **Public + Tenant API** | `http://<host>:8002/swagger/` | `/templates/`, `/api/sites/`, `/api/storage/`, `/api/tenants/` |
-| **Admin API** | `http://<host>:8002/site-admin/api/swagger/` | All `/site-admin/api/` endpoints (sections, blocks, items, storage, apply-template, reorder) |
-
-The Admin API Swagger documents all endpoints with their required JWT bearer authentication. Use the **Authorize** button and enter:
-```
-Bearer <your-arna-sso-jwt-token>
-```
-
-## Production QA Walkthrough
-
-For a production-safe, step-by-step QA process that uses Postman and covers public, tenant, and admin flows, see [QA_WALKTHROUGH.md](QA_WALKTHROUGH.md).
-
----
-
-## Running Tests
-
-Tests require Docker services to be running (PostgreSQL + Redis).
-
-```bash
-# Start services if not already running
-docker-compose up -d
-
-# Run all tests
-docker exec arna_site_web python manage.py test --verbosity=2
-
-# Run a specific test module
-docker exec arna_site_web python manage.py test sites.tests_admin --verbosity=2
-docker exec arna_site_web python manage.py test authentication.tests --verbosity=2
-```
-
-**Test coverage:**
-
-| Module | Test Class | What's Covered |
-|--------|------------|----------------|
-| `authentication` | `ArnaJWTAuthenticationTest` | No header, malformed bearer, wrong signature, expired token, missing claims, wrong audience, no matching tenant, valid token → SSOUser, cache hit, missing/invalid public key file |
-| `authentication` | `ArnaSSOAuthenticationTest` | Roles/permissions populated, `/auth/me` failure, org API failure, tenant not found |
-| `authentication` | `PermissionTest` | IsTenantAdmin pass/fail, IsTenantOwner pass/fail/missing attr, IsTenantMember null connection guard, regression: SSO user without site_admin role |
-| `sites` | `AdminAPITest` | No token → 401, wrong signature → 401, authenticated but not admin → 403, wrong tenant → 403, full CRUD lifecycle, bulk reorder, invalid reorder payloads, reorder cross-tenant isolation, owner access, site_admin access, apply template, overwrite flow, nonexistent template, filter by block, cache hit |
-| `core` | `CoreTests` | Template apply, missing/invalid template ID, unauthenticated access, idempotency |
-| `sites` | `SiteTests` | Full CRUD lifecycle, block filtering, public site view, schema isolation |
-| `storage` | `StorageTests` | Init upload, confirm upload, File Manager 502 handling |
 
 ---
 
 ## Tenant Onboarding
 
-When a new organization registers via Arna SSO, onboard them with:
+**Via API (recommended):**
 
 ```bash
-docker exec -it arna_site_web python manage.py shell
+POST http://localhost:8000/tenants/register/
+Authorization: Bearer <owner-jwt-token>
+
+{
+  "name": "Toko Budi",
+  "slug": "toko-budi",
+  "domain": "toko-budi.arnasite.id"
+}
 ```
+
+For local dev, add a `.localhost` domain after registering:
 
 ```python
-from core.models import Tenant, Domain
-
-tenant = Tenant.objects.create(
-    schema_name='toko_budi',       # lowercase, underscores only
-    name='Toko Budi',
-    slug='toko-budi',
-    sso_organization_id='<uuid-from-arna-sso>'
-)
-Domain.objects.create(
-    domain='toko-budi.arna.com',
-    tenant=tenant,
-    is_primary=True
-)
+# python manage.py shell
+from core.models import Domain, Tenant
+t = Tenant.objects.get(slug='toko-budi')
+Domain.objects.create(domain='toko-budi.localhost', tenant=t, is_primary=False)
 ```
 
-The PostgreSQL schema is created automatically on save. Run migrations for the new schema:
+Then add to hosts file: `127.0.0.1   toko-budi.localhost`
+
+---
+
+## Template System
+
+Templates are stored in the **public schema** and can be cloned to any tenant.
+
+```
+[Public Schema]
+Template (is_published=True → visible in catalog)
+└── TemplatePage ("Home", "About", ...)
+    └── TemplateSection (type: "hero", "features", ...)
+        └── TemplateBlock
+            └── TemplateListItem
+```
+
+**Tenants can also create their own templates:**
+1. `POST /api/templates/` → creates private template (`is_published=false`)
+2. Add pages/sections/blocks/items to the template
+3. `POST /api/templates/{id}/publish/` → visible in global catalog
+
+**Applying a template:**
 
 ```bash
-docker exec arna_site_web python manage.py migrate_schemas --schema=toko_budi
+POST /api/tenant/apply-template/
+{ "template_id": "<uuid>", "overwrite": false }
+```
+
+This clones the entire template structure into the tenant's schema (Pages → Sections → Blocks → Items).
+
+---
+
+## Running Tests
+
+```bash
+# Local
+python manage.py test --verbosity=2
+
+# Docker
+docker exec arna_site_web python manage.py test --verbosity=2
 ```
 
 ---
 
-## Docker Compose Services
+## Project Structure
 
-| Service | Container | Internal Port | Host Port |
-|---------|-----------|---------------|-----------|
-| Django app (uWSGI) | `arna_site_web` | `8002` | `8002` |
-| PostgreSQL 15 | `arna_site_postgres` | `5432` | `5433` |
-| Redis 7 | `arna_site_redis` | `6379` | `6380` |
+```
+arna_site/
+├── config/
+│   ├── settings.py         Django settings
+│   ├── urls.py             Tenant schema URL router
+│   └── public_urls.py      Public schema URL router
+│
+├── core/                   Public schema — tenant & template management
+│   ├── models.py           Tenant, Domain, Template, TemplatePage, ...
+│   ├── serializers.py
+│   ├── views.py
+│   ├── services.py         apply_template() logic
+│   ├── tenant_urls.py      /api/tenant/
+│   ├── domain_urls.py      /api/domains/
+│   ├── template_urls.py    /api/templates/
+│   └── register_urls.py    /tenants/register/ (public)
+│
+├── sites/                  Tenant schema — CMS content
+│   ├── models.py           Page, Section, ContentBlock, ListItem
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py             /api/pages/ (nested)
+│
+├── storage/                Tenant schema — file management
+│   ├── models.py           MediaReference
+│   ├── serializers.py
+│   ├── views.py            S3 upload proxy
+│   └── urls.py             /api/files/
+│
+├── authentication/
+│   ├── backends.py         SSOUser proxy
+│   ├── jwt_backends.py     ArnaJWTAuthentication
+│   └── permissions.py      IsTenantMember, IsTenantAdmin, IsTenantOwner
+│
+└── public.pem              Arna SSO RS256 public key (not committed)
+```
 
 ---
 
 ## Related Services
 
-| Service | Repo | Role |
-|---------|------|------|
-| **Arna SSO** | [`arna_sso`](https://github.com/ardzix/arna_sso) | Identity & access management, RS256 JWT issuance, RBAC |
-| **Arna File Manager** | *(external)* | S3-backed file storage, presigned URL generation |
-
----
-
-## License
-
-MIT License. See [LICENSE](LICENSE) for details.
+| Service | Role |
+|---------|------|
+| **Arna SSO** | Identity, JWT issuance (RS256), org & role management |
+| **Arna File Manager** | S3-backed file storage, presigned URL generation |
