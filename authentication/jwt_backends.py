@@ -10,6 +10,21 @@ from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
+
+def _jwt_decode_kwargs():
+    kwargs = {
+        "algorithms": [settings.SSO_JWT_ALGORITHM],
+        "options": {
+            "require": ["exp", "user_id"],
+        },
+    }
+    if getattr(settings, "SSO_JWT_AUDIENCE", None):
+        kwargs["audience"] = settings.SSO_JWT_AUDIENCE
+    else:
+        kwargs["options"]["verify_aud"] = False
+    return kwargs
+
+
 @lru_cache(maxsize=1)
 def get_cached_public_key(key_path):
     try:
@@ -64,11 +79,7 @@ class ArnaJWTAuthentication(BaseAuthentication):
             claims = jwt.decode(
                 token,
                 self.public_key,
-                algorithms=[settings.SSO_JWT_ALGORITHM],
-                options={
-                    "require": ["exp", "user_id"],
-                    "verify_aud": False,
-                },
+                **_jwt_decode_kwargs(),
             )
         except jwt.PyJWTError as e:
             raise AuthenticationFailed(f"Invalid or expired JWT token: {e}")

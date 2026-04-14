@@ -106,6 +106,11 @@ CACHES = {
 
 # Arna Storage integration
 ARNA_STORAGE_BASE_URL = os.getenv('ARNA_STORAGE_BASE_URL', 'https://storage.arnatech.id')
+# Arna SSO integration
+ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api')
+SSO_IAM_PROVISION_ON_REGISTER = os.getenv(
+    'SSO_IAM_PROVISION_ON_REGISTER', 'True'
+).lower() in ('true', '1', 'yes')
 
 # JWT verification — public key issued by Arna SSO (RS256)
 _jwt_key_raw = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', 'public.pem')
@@ -146,7 +151,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

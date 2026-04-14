@@ -61,3 +61,6 @@ config/__pycache__/settings.cpython-314.pyc
 config/__pycache__/settings.cpython-314.pyc
 config/__pycache__/settings.cpython-314.pyc
 /scripts
+
+# Codex
+.codex

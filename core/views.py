@@ -1,6 +1,9 @@
 import jwt
+import logging
+import requests as http
 from django.conf import settings
 from django.shortcuts import get_object_or_404
+from django.db.models import Q
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -10,6 +13,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
+from authentication.jwt_backends import _jwt_decode_kwargs, get_cached_public_key
 from core.models import Template, TemplatePage, TemplateSection, TemplateBlock, TemplateListItem, Tenant, Domain
 from core.serializers import (
     TemplateSerializer,
@@ -21,14 +25,20 @@ from core.serializers import (
 )
 from core.services import apply_template
 
+logger = logging.getLogger(__name__)
+
 
 class TemplateListView(ListAPIView):
     """
     Menampilkan semua template master yang aktif beserta struktur lengkapnya
     (sections → blocks → list items). Tidak memerlukan autentikasi.
     """
-    queryset = Template.objects.filter(is_active=True).prefetch_related(
-        "sections__blocks__list_items"
+    queryset = Template.objects.filter(
+        is_active=True,
+        is_published=True,
+    ).prefetch_related(
+        "pages__sections__blocks__list_items",
+        "sections__blocks__list_items",
     )
     serializer_class = TemplateSerializer
     permission_classes = [AllowAny]
@@ -39,8 +49,12 @@ class TemplateDetailView(RetrieveAPIView):
     Menampilkan detail satu template master beserta struktur lengkapnya
     (sections → blocks → list items). Tidak memerlukan autentikasi.
     """
-    queryset = Template.objects.filter(is_active=True).prefetch_related(
-        "sections__blocks__list_items"
+    queryset = Template.objects.filter(
+        is_active=True,
+        is_published=True,
+    ).prefetch_related(
+        "pages__sections__blocks__list_items",
+        "sections__blocks__list_items",
     )
     serializer_class = TemplateSerializer
     permission_classes = [AllowAny]
@@ -170,6 +184,193 @@ class TenantRegisterView(APIView):
     **Permission:** Hanya `is_owner=true` dalam JWT.
     """
     permission_classes = [AllowAny]
+    DEFAULT_OWNER_PERMISSION = "arnasite.cms.manage"
+    DEFAULT_OWNER_ROLE = "site_admin"
+
+    def _sso_headers(self, request):
+        return {
+            "Authorization": request.META.get("HTTP_AUTHORIZATION", ""),
+            "Content-Type": "application/json",
+        }
+
+    def _sso_base_url(self):
+        return settings.ARNA_SSO_BASE_URL.rstrip("/")
+
+    def _extract_items(self, payload):
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict):
+            results = payload.get("results")
+            if isinstance(results, list):
+                return results
+            data = payload.get("data")
+            if isinstance(data, list):
+                return data
+        return []
+
+    def _find_by_name(self, items, name):
+        for item in items:
+            if item.get("name") == name:
+                return item
+        return None
+
+    def _member_id_for_user(self, members, user_id):
+        if not user_id:
+            return None
+        for member in members:
+            raw_user = member.get("user")
+            if isinstance(raw_user, dict):
+                raw_user = raw_user.get("id")
+            if str(raw_user) == str(user_id):
+                return member.get("id")
+        return None
+
+    def _role_already_assigned(self, user_roles, member_id, role_id):
+        for user_role in user_roles:
+            org_member = user_role.get("organization_member")
+            if isinstance(org_member, dict):
+                org_member = org_member.get("id")
+            role = user_role.get("role")
+            if isinstance(role, dict):
+                role = role.get("id")
+            if str(org_member) == str(member_id) and str(role) == str(role_id):
+                return True
+        return False
+
+    def _provision_sso_iam(self, request, claims):
+        """
+        Best-effort provisioning of default IAM objects in SSO for new org:
+        - set current organization session
+        - ensure default permission exists
+        - ensure site_admin role exists with that permission
+        - assign role to current user (org owner)
+        """
+        if not getattr(settings, "SSO_IAM_PROVISION_ON_REGISTER", True):
+            return {
+                "ok": True,
+                "skipped": True,
+                "message": "SSO IAM provisioning is disabled by SSO_IAM_PROVISION_ON_REGISTER.",
+            }
+
+        org_id = claims.get("org_id")
+        user_id = claims.get("user_id")
+        if not org_id or not user_id:
+            return {
+                "ok": False,
+                "message": "Skipped IAM provisioning: token missing org_id or user_id.",
+            }
+
+        base = self._sso_base_url()
+        headers = self._sso_headers(request)
+
+        try:
+            # 1) Set active org context in SSO
+            current_resp = http.post(
+                f"{base}/organizations/current/",
+                json={"organization_id": org_id},
+                headers=headers,
+                timeout=10,
+            )
+            current_resp.raise_for_status()
+
+            # 2) Ensure permission exists
+            perm_list_resp = http.get(
+                f"{base}/iam/permissions/",
+                headers=headers,
+                timeout=10,
+            )
+            perm_list_resp.raise_for_status()
+            permissions = self._extract_items(perm_list_resp.json())
+            permission = self._find_by_name(permissions, self.DEFAULT_OWNER_PERMISSION)
+            if not permission:
+                perm_create_resp = http.post(
+                    f"{base}/iam/permissions/",
+                    json={
+                        "name": self.DEFAULT_OWNER_PERMISSION,
+                        "description": "Manage ArnaSite CMS content and tenant configuration.",
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                perm_create_resp.raise_for_status()
+                permission = perm_create_resp.json()
+            permission_id = permission.get("id")
+            if not permission_id:
+                raise ValueError("SSO permission response missing id.")
+
+            # 3) Ensure role exists
+            role_list_resp = http.get(
+                f"{base}/iam/roles/",
+                headers=headers,
+                timeout=10,
+            )
+            role_list_resp.raise_for_status()
+            roles = self._extract_items(role_list_resp.json())
+            role = self._find_by_name(roles, self.DEFAULT_OWNER_ROLE)
+            if not role:
+                role_create_resp = http.post(
+                    f"{base}/iam/roles/",
+                    json={
+                        "name": self.DEFAULT_OWNER_ROLE,
+                        "description": "Default CMS admin role for ArnaSite tenant.",
+                        "permission_ids": [permission_id],
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                role_create_resp.raise_for_status()
+                role = role_create_resp.json()
+            role_id = role.get("id")
+            if not role_id:
+                raise ValueError("SSO role response missing id.")
+
+            # 4) Resolve organization member id for owner user
+            member_list_resp = http.get(
+                f"{base}/organizations/{org_id}/members/",
+                headers=headers,
+                timeout=10,
+            )
+            member_list_resp.raise_for_status()
+            members = self._extract_items(member_list_resp.json())
+            member_id = self._member_id_for_user(members, user_id)
+            if not member_id:
+                raise ValueError("Cannot map current user to organization member in SSO.")
+
+            # 5) Assign role if not already assigned
+            user_role_list_resp = http.get(
+                f"{base}/iam/user-roles/",
+                headers=headers,
+                timeout=10,
+            )
+            user_role_list_resp.raise_for_status()
+            user_roles = self._extract_items(user_role_list_resp.json())
+
+            if not self._role_already_assigned(user_roles, member_id, role_id):
+                assign_resp = http.post(
+                    f"{base}/iam/user-roles/",
+                    json={
+                        "organization_member": member_id,
+                        "role": role_id,
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                assign_resp.raise_for_status()
+
+            return {
+                "ok": True,
+                "permission": self.DEFAULT_OWNER_PERMISSION,
+                "role": self.DEFAULT_OWNER_ROLE,
+                "organization_id": str(org_id),
+                "user_id": str(user_id),
+            }
+        except (http.RequestException, ValueError) as e:
+            logger.warning("SSO IAM provisioning failed for org_id=%s: %s", org_id, e)
+            return {
+                "ok": False,
+                "message": f"Tenant created, but SSO IAM provisioning failed: {e}",
+                "organization_id": str(org_id),
+            }
 
     def _decode_jwt(self, request):
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
@@ -178,7 +379,6 @@ class TenantRegisterView(APIView):
 
         token = auth_header.split(" ", 1)[1]
 
-        from authentication.jwt_backends import get_cached_public_key
         public_key = get_cached_public_key(settings.SSO_JWT_PUBLIC_KEY_PATH)
         if not public_key:
             raise AuthenticationFailed("JWT verification unavailable. Check SSO_JWT_PUBLIC_KEY_PATH.")
@@ -187,11 +387,7 @@ class TenantRegisterView(APIView):
             claims = jwt.decode(
                 token,
                 public_key,
-                algorithms=[settings.SSO_JWT_ALGORITHM],
-                options={
-                    "require": ["exp", "user_id"],
-                    "verify_aud": False,
-                },
+                **_jwt_decode_kwargs(),
             )
         except jwt.PyJWTError as e:
             raise AuthenticationFailed(f"Invalid or expired JWT token: {e}")
@@ -256,6 +452,8 @@ class TenantRegisterView(APIView):
             tenant.delete()
             return Response({"error": f"Failed to register domain: {str(e)}"}, status=400)
 
+        sso_sync = self._provision_sso_iam(request, claims)
+
         return Response({
             "tenant": {
                 "name": tenant.name,
@@ -263,6 +461,7 @@ class TenantRegisterView(APIView):
                 "schema_name": tenant.schema_name,
                 "domain": data["domain"],
             },
+            "sso_sync": sso_sync,
             "next_steps": [
                 f"Access your site at: {data['domain']}/swagger/",
                 "Apply a template: POST /api/tenants/current/apply-template/",
@@ -501,11 +700,6 @@ class TenantTemplateListCreateView(APIView):
             qs = Template.objects.filter(is_active=True, source_tenant_schema=schema,
                                          is_published=False)
         else:
-            qs = Template.objects.filter(is_active=True).filter(
-                # published for all OR owned by this tenant
-                **{}
-            )
-            from django.db.models import Q
             qs = Template.objects.filter(is_active=True).filter(
                 Q(is_published=True) | Q(source_tenant_schema=schema)
             )

@@ -28,12 +28,12 @@ def auto_seed_public_tenant(sender, **kwargs):
     import os
     domain_name = os.getenv('PUBLIC_DOMAIN_NAME', 'localhost')
     
-    if created:
-        Domain.objects.get_or_create(
-            domain=domain_name,
-            defaults={'tenant': public_tenant, 'is_primary': True}
-        )
+    Domain.objects.get_or_create(
+        domain=domain_name,
+        defaults={'tenant': public_tenant, 'is_primary': True}
+    )
 
+    if created:
         template, _ = Template.objects.get_or_create(name='Modern Business', slug='modern-business')
         section, _ = TemplateSection.objects.get_or_create(template=template, type='hero', order=1)
         TemplateBlock.objects.get_or_create(section=section, title='Welcome to our Business', order=1)

@@ -1,9 +1,13 @@
-from django.test import TestCase
+import tempfile
+import os
+
+from django.test import TestCase, override_settings
 from django_tenants.test.client import TenantClient
 from unittest.mock import patch
 import uuid
 
 from core.models import Tenant, Domain, Template, TemplateSection, TemplateBlock
+from authentication.test_helpers import generate_rsa_keypair, make_jwt
 from sites.models import Section, ContentBlock
 
 
@@ -167,3 +171,76 @@ class E2EApplyTemplateTest(TestCase):
             Section.objects.filter(type="hero").count(), 1,
             "Re-applying a template with overwrite=true must replace content"
         )
+
+
+@override_settings(ALLOWED_HOSTS=['*'])
+class PublicTemplateVisibilityTest(TestCase):
+    def setUp(self):
+        from django.db import connection
+        connection.set_schema_to_public()
+
+        self.public_tenant, _ = Tenant.objects.get_or_create(
+            schema_name='public',
+            defaults={
+                'name': 'ArnaSite Global',
+                'slug': 'public',
+                'sso_organization_id': uuid.uuid4(),
+            }
+        )
+        Domain.objects.get_or_create(domain='localhost', tenant=self.public_tenant, is_primary=True)
+
+        self.public_template = Template.objects.create(
+            name='Published Template',
+            slug='published-template',
+            is_published=True,
+        )
+        self.private_template = Template.objects.create(
+            name='Private Template',
+            slug='private-template',
+            is_published=False,
+            source_tenant_schema='tenant_alpha',
+        )
+
+    def test_public_catalog_hides_private_templates(self):
+        response = self.client.get("/templates/")
+        self.assertEqual(response.status_code, 200)
+        slugs = {item["slug"] for item in response.json()}
+        self.assertIn(self.public_template.slug, slugs)
+        self.assertNotIn(self.private_template.slug, slugs)
+
+    def test_public_template_detail_rejects_private_template(self):
+        response = self.client.get(f"/templates/{self.private_template.id}/")
+        self.assertEqual(response.status_code, 404)
+
+
+@override_settings(ALLOWED_HOSTS=['*'])
+class TenantRegistrationAudienceTest(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.private_pem, cls.public_pem = generate_rsa_keypair()
+        cls.key_file = tempfile.NamedTemporaryFile(suffix='.pem', delete=False)
+        cls.key_file.write(cls.public_pem)
+        cls.key_file.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        os.unlink(cls.key_file.name)
+        super().tearDownClass()
+
+    def test_register_rejects_wrong_audience_token(self):
+        token = make_jwt(
+            self.private_pem,
+            uuid.uuid4(),
+            uuid.uuid4(),
+            is_owner=True,
+            aud="some_other_service",
+        )
+        with override_settings(SSO_JWT_PUBLIC_KEY_PATH=self.key_file.name, SSO_JWT_AUDIENCE='arnasite'):
+            response = self.client.post(
+                "/tenants/register/",
+                {"name": "Tenant Baru", "slug": "tenant-baru", "domain": "tenant-baru.localhost"},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 401)
