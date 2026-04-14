@@ -118,7 +118,7 @@ SSO_JWT_PUBLIC_KEY_PATH = str(
     BASE_DIR / _jwt_key_raw if not os.path.isabs(_jwt_key_raw) else Path(_jwt_key_raw)
 )
 SSO_JWT_ALGORITHM = 'RS256'
-SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', 'arnasite')
+SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', '')
 
 # CORS
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
