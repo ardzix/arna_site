@@ -24,7 +24,7 @@ class DomainSerializer(serializers.ModelSerializer):
 
 
 class TenantSerializer(serializers.ModelSerializer):
-    domains = DomainSerializer(many=True, read_only=True, source='domain_set')
+    domains = DomainSerializer(many=True, read_only=True, source='domains')
 
     class Meta:
         model = Tenant

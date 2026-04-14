@@ -85,6 +85,9 @@ class ArnaJWTAuthentication(BaseAuthentication):
             tenant = Tenant.objects.get(sso_organization_id=org_id)
         except Tenant.DoesNotExist:
             return None
+        except Exception as e:
+            logger.error("DB error looking up tenant for org_id=%s: %s", org_id, e)
+            raise AuthenticationFailed(f"Server error during authentication. Contact support. ({type(e).__name__})")
 
         user = SSOUser(
             user_id=user_id,
