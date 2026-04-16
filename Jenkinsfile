@@ -5,7 +5,7 @@ pipeline {
         DEPLOY = 'true'
 
         // Docker
-        DOCKER_IMAGE = 'ardzix/arna_site'
+        DOCKER_IMAGE = 'arnatechid/arna_site'
         DOCKER_TAG   = "${BUILD_NUMBER}"
         DOCKER_REGISTRY_CREDENTIALS = 'ard-dockerhub'
 
