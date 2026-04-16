@@ -124,21 +124,49 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        storage_data = resp.json()
-        reference = MediaReference.objects.create(
-            file_id=storage_data["file_id"],
-            url=storage_data["url"],
-            display_name=serializer.validated_data["filename"],
-            mime_type=serializer.validated_data["mime_type"],
-            size_bytes=serializer.validated_data["size_bytes"],
-            status="upload_pending",
-        )
+        try:
+            storage_data = resp.json()
+        except ValueError:
+            body_preview = (resp.text or "")[:300]
+            return Response(
+                {
+                    "error": "Arna File Manager returned non-JSON response on upload init.",
+                    "upstream_body": body_preview,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        file_id = storage_data.get("file_id")
+        file_url = storage_data.get("url")
+        if not file_id or not file_url:
+            return Response(
+                {
+                    "error": "Arna File Manager response missing required fields: file_id/url.",
+                    "upstream_response": storage_data,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            reference = MediaReference.objects.create(
+                file_id=file_id,
+                url=file_url,
+                display_name=serializer.validated_data["filename"],
+                mime_type=serializer.validated_data["mime_type"],
+                size_bytes=serializer.validated_data["size_bytes"],
+                status="upload_pending",
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Failed saving media reference: {str(e)}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         return Response({
             "reference_id": reference.id,
             "multipart":    storage_data.get("multipart"),
-            "file_id":      storage_data["file_id"],
-            "url":          storage_data["url"],
+            "file_id":      file_id,
+            "url":          file_url,
         }, status=status.HTTP_201_CREATED)
 
     @swagger_auto_schema(

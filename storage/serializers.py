@@ -14,6 +14,13 @@ class StorageUploadRequestSerializer(serializers.Serializer):
     owner_scope = serializers.ChoiceField(choices=["user", "org"], default="org")
     visibility = serializers.ChoiceField(choices=["private", "org", "public", "shared"], default="private")
 
+    def validate_mime_type(self, value):
+        # Enforce standard MIME format (example: image/png) to avoid
+        # upstream storage rejection or ambiguous content type handling.
+        if "/" not in value:
+            raise serializers.ValidationError("mime_type harus format valid, contoh: image/png")
+        return value
+
 class StoragePresignRequestSerializer(serializers.Serializer):
     parts = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
