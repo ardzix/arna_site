@@ -98,14 +98,19 @@ class ArnaJWTAuthenticationTest(TestCase):
         with self.assertRaisesMessage(AuthenticationFailed, "Invalid or expired JWT token."):
             self.auth.authenticate(req)
 
+    @patch('authentication.jwt_backends.settings.SSO_JWT_AUDIENCE', None)
+    def test_invalid_audience_allowed_when_audience_check_disabled(self):
+        token = make_jwt(self.private_pem, self.user_id, self.org_id, aud="some_other_service")
+        req = self.make_mock_request(auth_header=f"Bearer {token}")
+        result = self.auth.authenticate(req)
+        self.assertIsNotNone(result)
+
     def test_org_id_no_matching_tenant(self):
         from core.models import Tenant
         self.mock_tenant_get.side_effect = Tenant.DoesNotExist
         token = make_jwt(self.private_pem, self.user_id, self.org_id)
         req = self.make_mock_request(auth_header=f"Bearer {token}")
-        
-        with self.assertRaisesMessage(AuthenticationFailed, "This organization does not have an ArnaSite tenant."):
-            self.auth.authenticate(req)
+        self.assertIsNone(self.auth.authenticate(req))
 
     def test_valid_token_returns_ssouser(self):
         token = make_jwt(self.private_pem, self.user_id, self.org_id)
@@ -308,5 +313,4 @@ class PermissionTest(TestCase):
         req = MagicMock()
         req.user = object() # No tenant_schema
         self.assertFalse(perm.has_permission(req, MagicMock()))
-
 

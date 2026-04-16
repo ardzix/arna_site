@@ -85,6 +85,16 @@ def _do_reorder(model, data):
     return Response({"status": "reordered"})
 
 
+def _do_scoped_reorder(queryset, data):
+    if not isinstance(data, list):
+        return Response({"error": "Expected a list of {id, order}"}, status=400)
+    with transaction.atomic():
+        for item in data:
+            if item.get("id") and item.get("order") is not None:
+                queryset.filter(id=item["id"]).update(order=item["order"])
+    return Response({"status": "reordered"})
+
+
 # ─── Pages ────────────────────────────────────────────────────────────────────
 
 class PageListCreateView(ListCreateAPIView):
@@ -205,7 +215,11 @@ class SectionReorderView(APIView):
                          operation_summary='Reorder sections',
                          security=[{'Bearer': []}])
     def patch(self, request, page_id):
-        return _do_reorder(Section, request.data)
+        get_object_or_404(Page, pk=page_id)
+        return _do_scoped_reorder(
+            Section.objects.filter(page_id=page_id),
+            request.data,
+        )
 
 
 # ─── Blocks (nested under Section) ────────────────────────────────────────────

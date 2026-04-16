@@ -106,6 +106,11 @@ CACHES = {
 
 # Arna Storage integration
 ARNA_STORAGE_BASE_URL = os.getenv('ARNA_STORAGE_BASE_URL', 'https://storage.arnatech.id')
+# Arna SSO integration
+ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api')
+SSO_IAM_PROVISION_ON_REGISTER = os.getenv(
+    'SSO_IAM_PROVISION_ON_REGISTER', 'True'
+).lower() in ('true', '1', 'yes')
 
 # JWT verification — public key issued by Arna SSO (RS256)
 _jwt_key_raw = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', 'public.pem')
@@ -113,11 +118,12 @@ SSO_JWT_PUBLIC_KEY_PATH = str(
     BASE_DIR / _jwt_key_raw if not os.path.isabs(_jwt_key_raw) else Path(_jwt_key_raw)
 )
 SSO_JWT_ALGORITHM = 'RS256'
-SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', 'arnasite')
+SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', '')
 
 # CORS
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CORS_ALLOW_ALL_ORIGINS = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
+CORS_ALLOW_CREDENTIALS = os.getenv('CORS_ALLOW_CREDENTIALS', 'False').lower() in ('true', '1', 'yes')
 
 # Swagger / drf-yasg
 SWAGGER_SETTINGS = {
@@ -146,7 +152,7 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

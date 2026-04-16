@@ -29,12 +29,27 @@ class Command(BaseCommand):
 
         if created:
             self.stdout.write(self.style.SUCCESS("Created Public Tenant."))
-            template = Template.objects.create(name='Modern Business', slug='modern-business')
-            section = TemplateSection.objects.create(template=template, type='hero', order=1)
-            TemplateBlock.objects.create(section=section, title='Welcome to our Business', order=1)
+        else:
+            self.stdout.write(self.style.WARNING("Public tenant already exists."))
+
+        template, template_created = Template.objects.get_or_create(
+            name='Modern Business',
+            slug='modern-business',
+        )
+        section, _ = TemplateSection.objects.get_or_create(
+            template=template,
+            type='hero',
+            order=1,
+        )
+        TemplateBlock.objects.get_or_create(
+            section=section,
+            title='Welcome to our Business',
+            order=1,
+        )
+        if template_created:
             self.stdout.write(self.style.SUCCESS("Created Dummy Master Template."))
         else:
-            self.stdout.write(self.style.WARNING("Public tenant already exists. Skipping template seed."))
+            self.stdout.write(self.style.WARNING("Dummy Master Template already exists."))
 
         # 2. Create or get the Test Tenant
         test_tenant, created = Tenant.objects.get_or_create(
