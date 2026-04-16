@@ -108,7 +108,6 @@ else
         --replicas ${REPLICAS} \\
         --network ${NETWORK_NAME} \\
         --env-file /root/${STACK_NAME}/.env \\
-        --publish ${SERVICE_PORT}:8001 \\
         --update-delay 10s \\
         --update-order start-first \\
         --update-failure-action rollback \\
