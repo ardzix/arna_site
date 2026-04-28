@@ -24,7 +24,7 @@ def _read_permissions():
 
 
 def _write_permissions():
-    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
+    return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 
 _init_upload_response = openapi.Response(

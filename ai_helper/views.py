@@ -34,7 +34,7 @@ def _read_permissions():
 
 
 def _write_permissions():
-    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
+    return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 
 class AISessionListCreateView(APIView):
