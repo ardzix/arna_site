@@ -30,6 +30,7 @@ SHARED_APPS = (
 TENANT_APPS = (
     'sites',
     'storage',
+    'ai_helper',
 
     'django.contrib.contenttypes',
 )
@@ -111,6 +112,12 @@ ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api'
 SSO_IAM_PROVISION_ON_REGISTER = os.getenv(
     'SSO_IAM_PROVISION_ON_REGISTER', 'True'
 ).lower() in ('true', '1', 'yes')
+
+# AI Copilot (LLM)
+DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+DEEPSEEK_VISION_MODEL = os.getenv('DEEPSEEK_VISION_MODEL', '')
 
 # JWT verification — public key issued by Arna SSO (RS256)
 _jwt_key_raw = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', 'public.pem')

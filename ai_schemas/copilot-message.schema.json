@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arnasite.id/schemas/ai/copilot-message.schema.json",
+  "title": "ArnaSite AI Copilot Message",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "content", "attachments"],
+  "properties": {
+    "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+    "content": { "type": "string", "minLength": 1, "maxLength": 20000 },
+    "attachments": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "url", "mime_type"],
+        "properties": {
+          "type": { "type": "string", "enum": ["image"] },
+          "url": { "type": "string", "format": "uri" },
+          "mime_type": {
+            "type": "string",
+            "pattern": "^image\\/(png|jpeg|jpg|webp|gif|svg\\+xml)$"
+          },
+          "caption": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    }
+  }
+}

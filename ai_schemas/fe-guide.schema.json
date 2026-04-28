@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arnasite.id/schemas/ai/fe-guide.schema.json",
+  "title": "ArnaSite AI FE Guide Draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "summary",
+    "section_catalog",
+    "component_mapping",
+    "example_payload",
+    "implementation_notes",
+    "markdown"
+  ],
+  "properties": {
+    "title": { "type": "string", "maxLength": 255 },
+    "summary": { "type": "string", "maxLength": 5000 },
+    "section_catalog": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "purpose", "required_fields", "optional_fields"],
+        "properties": {
+          "type": { "type": "string", "maxLength": 100 },
+          "purpose": { "type": "string", "maxLength": 1000 },
+          "required_fields": { "type": "array", "items": { "type": "string" } },
+          "optional_fields": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "component_mapping": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section_type", "component_name", "props_contract"],
+        "properties": {
+          "section_type": { "type": "string", "maxLength": 100 },
+          "component_name": { "type": "string", "maxLength": 100 },
+          "props_contract": { "type": "string", "maxLength": 5000 }
+        }
+      }
+    },
+    "example_payload": { "type": "object" },
+    "implementation_notes": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 2000 }
+    },
+    "markdown": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arnasite.id/schemas/ai/site-content.schema.json",
+  "title": "ArnaSite AI Site Content Draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template_id", "pages"],
+  "properties": {
+    "template_id": { "type": "string", "format": "uuid" },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/page" }
+    }
+  },
+  "$defs": {
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slug",
+        "title",
+        "is_home",
+        "is_active",
+        "meta_title",
+        "meta_description",
+        "sections"
+      ],
+      "properties": {
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 255
+        },
+        "title": { "type": "string", "maxLength": 255 },
+        "is_home": { "type": "boolean" },
+        "is_active": { "type": "boolean" },
+        "meta_title": { "type": "string", "maxLength": 255 },
+        "meta_description": { "type": "string", "maxLength": 1000 },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/section" }
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "order", "is_active", "blocks"],
+      "properties": {
+        "type": { "type": "string", "maxLength": 100 },
+        "order": { "type": "integer", "minimum": 1, "maximum": 2000 },
+        "is_active": { "type": "boolean" },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/block" }
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "title", "subtitle", "description", "image_url", "extra", "items"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "title": { "type": "string", "maxLength": 500 },
+        "subtitle": { "type": "string", "maxLength": 500 },
+        "description": { "type": "string", "maxLength": 20000 },
+        "image_url": { "type": "string", "format": "uri" },
+        "extra": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "array", "object", "null"]
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 300,
+          "items": { "$ref": "#/$defs/item" }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "title", "description", "icon"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "title": { "type": "string", "maxLength": 500 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "icon": { "type": "string", "maxLength": 100 }
+      }
+    }
+  }
+}

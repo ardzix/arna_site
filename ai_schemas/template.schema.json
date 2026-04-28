@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arnasite.id/schemas/ai/template.schema.json",
+  "title": "ArnaSite AI Template Draft",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "slug",
+    "description",
+    "category",
+    "preview_image_url",
+    "pages",
+    "extra_conventions"
+  ],
+  "properties": {
+    "name": { "type": "string", "minLength": 3, "maxLength": 255 },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 100
+    },
+    "description": { "type": "string", "maxLength": 5000 },
+    "category": { "type": "string", "maxLength": 100 },
+    "preview_image_url": { "type": "string", "format": "uri" },
+    "pages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": { "$ref": "#/$defs/page" }
+    },
+    "extra_conventions": {
+      "type": "object",
+      "description": "Konvensi field extra per section.type",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": ["string", "number", "boolean", "array", "object", "null"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "slug", "order", "is_home", "sections"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "order": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "is_home": { "type": "boolean" },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/section" }
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "order", "is_active", "blocks"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "order": { "type": "integer", "minimum": 1, "maximum": 2000 },
+        "is_active": { "type": "boolean" },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/block" }
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "subtitle",
+        "description",
+        "image_url",
+        "order",
+        "extra",
+        "items"
+      ],
+      "properties": {
+        "title": { "type": "string", "maxLength": 500 },
+        "subtitle": { "type": "string", "maxLength": 500 },
+        "description": { "type": "string", "maxLength": 20000 },
+        "image_url": { "type": "string", "format": "uri" },
+        "order": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "extra": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "array", "object", "null"]
+          }
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 300,
+          "items": { "$ref": "#/$defs/item" }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "description", "icon", "order"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 500 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "icon": { "type": "string", "maxLength": 100 },
+        "order": { "type": "integer", "minimum": 1, "maximum": 10000 }
+      }
+    }
+  }
+}

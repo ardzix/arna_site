@@ -19,6 +19,7 @@ Authentication is handled entirely offline via **RS256 JWT tokens** issued by Ar
 - [Tenant Onboarding](#tenant-onboarding)
 - [Template System](#template-system)
 - [Running Tests](#running-tests)
+- [AI Copilot](#ai-copilot)
 - [Related Services](#related-services)
 
 ---
@@ -364,6 +365,24 @@ python manage.py test --verbosity=2
 # Docker
 docker exec arna_site_web python manage.py test --verbosity=2
 ```
+
+---
+
+## AI Copilot
+
+ArnaSite now includes an `ai_helper` module for AI-assisted template and site generation.
+
+Highlights:
+- Tenant-scoped copilot sessions with chat history
+- Multimodal brainstorming support (text + image URLs)
+- Draft generation and schema validation before publish
+- Publish flow into existing Template and Site models
+- FE guide draft generation (`markdown`) for frontend implementation
+
+Detailed implementation and API docs:
+- `AI-COPILOT.md`
+- `AI-IMPLEMENTATION-PLAN.md`
+- `ai_schemas/README.md`
 
 ---
 

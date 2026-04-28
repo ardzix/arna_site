@@ -25,6 +25,7 @@ schema_view = get_schema_view(
         path('api/templates/', include('core.template_urls')),
         path('api/pages/',     include('sites.urls')),
         path('api/files/',     include('storage.urls')),
+        path('api/ai/',        include('ai_helper.urls')),
         path('api/public/',    include('sites.public_urls')),
     ],
 )
@@ -35,6 +36,7 @@ urlpatterns = [
     path('api/templates/', include('core.template_urls')),
     path('api/pages/',     include('sites.urls')),
     path('api/files/',     include('storage.urls')),
+    path('api/ai/',        include('ai_helper.urls')),
     path('api/public/',    include('sites.public_urls')),
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
