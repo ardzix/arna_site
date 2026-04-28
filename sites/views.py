@@ -25,7 +25,7 @@ def _read_perms():
 
 
 def _write_perms():
-    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
 
 
 # ─── Public ───────────────────────────────────────────────────────────────────

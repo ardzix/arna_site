@@ -109,7 +109,7 @@ class ApplyTemplateView(APIView):
     **Permission:** `site_admin` role atau `is_owner = true`.
     """
     def get_permissions(self):
-        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
 
     @swagger_auto_schema(
         operation_summary='Terapkan template ke tenant',
@@ -494,7 +494,7 @@ class TenantDetailView(APIView):
     """
     def get_permissions(self):
         if self.request.method == 'PATCH':
-            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
         return [IsAuthenticated(), IsTenantMember()]
 
     def _get_tenant(self):
@@ -571,7 +571,7 @@ class DomainListCreateView(APIView):
     """
     def get_permissions(self):
         if self.request.method == 'POST':
-            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
         return [IsAuthenticated(), IsTenantMember()]
 
     def _get_tenant(self):
@@ -612,7 +612,7 @@ class DomainDetailView(APIView):
     **Permission:** `site_admin` atau owner.
     """
     def get_permissions(self):
-        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
 
     def _get_domain(self, pk):
         from django.db import connection
@@ -677,7 +677,7 @@ class TenantTemplateListCreateView(APIView):
     """
     def get_permissions(self):
         if self.request.method == 'POST':
-            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
         return [IsAuthenticated(), IsTenantMember()]
 
     @swagger_auto_schema(
@@ -738,7 +738,7 @@ class TenantTemplateDetailView(APIView):
     """
     def get_permissions(self):
         if self.request.method in {'PATCH', 'DELETE'}:
-            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+            return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
         return [IsAuthenticated(), IsTenantMember()]
 
     def _get_owned_template(self, pk):
@@ -805,7 +805,7 @@ class TenantTemplatePublishView(APIView):
     **Permission:** admin/owner.
     """
     def get_permissions(self):
-        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+        return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
 
     def _get_owned(self, pk):
         schema = _current_schema()

@@ -33,8 +33,8 @@ Represents one assistant workflow context.
 - mode: `template` or `site`
 - status: `active`, `generated`, `published`, `failed`
 - llm_mode: `chat_economy` or `multimodal_vision`
-- llm_model: optional per-session model override
-- selected_template_id for site mode
+- llm_model: optional per-session model override (default: `deepseek-chat`)
+- template_id: nullable (default: `null`), only required for `site` mode generation
 
 ### `AICopilotMessage`
 Stores chat messages for the session.
@@ -104,7 +104,7 @@ The validator uses `jsonschema` (added to `requirements.txt`).
 - `TemplateListItem`
 
 ### Site Mode
-1. User creates session with `mode=site` and `selected_template_id`
+1. User creates session with `mode=site` and `template_id`
 2. User sends messages + references
 3. `generate` produces site content draft JSON
 4. User publishes draft
@@ -124,6 +124,9 @@ Authorization: Bearer <token>
 
 {
   "mode": "template",
+  "llm_mode": "chat_economy",
+  "llm_model": "deepseek-chat",
+  "template_id": null,
   "title": "Modern Logistics Template"
 }
 ```
@@ -131,7 +134,8 @@ Authorization: Bearer <token>
 Request fields:
 - `mode`: `template` | `site`
 - `llm_mode`: `chat_economy` | `multimodal_vision` (optional, default `chat_economy`)
-- `llm_model`: optional explicit model override
+- `llm_model`: optional explicit model override (default `deepseek-chat`)
+- `template_id`: optional, default `null`; required only when you generate in `site` mode
 
 ### Add Message with Image
 ```http

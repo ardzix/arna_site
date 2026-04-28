@@ -34,7 +34,7 @@ def _read_permissions():
 
 
 def _write_permissions():
-    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin() | IsTenantOwner()]
+    return [IsAuthenticated(), IsTenantMember(), IsTenantAdmin | IsTenantOwner]
 
 
 class AISessionListCreateView(APIView):
@@ -43,7 +43,9 @@ class AISessionListCreateView(APIView):
 
     POST supports runtime model selection:
     - llm_mode: chat_economy | multimodal_vision
-    - llm_model: optional explicit model override
+    - llm_model: optional explicit model override (default: deepseek-chat)
+    - template_id: optional (default null), required only for site mode generation
+    - !important: dont submit template_id if working in template creation mode
     """
     def get_permissions(self):
         if self.request.method in READ_METHODS:

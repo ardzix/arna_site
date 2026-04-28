@@ -8,9 +8,38 @@ from ai_helper.models import (
 
 
 class AICopilotSessionCreateSerializer(serializers.ModelSerializer):
+    llm_mode = serializers.ChoiceField(
+        choices=AICopilotSession.LLM_MODE_CHOICES,
+        default=AICopilotSession.LLM_MODE_CHAT_ECONOMY,
+        help_text=(
+            "LLM runtime mode. "
+            "`chat_economy` = text-first token-saving mode. "
+            "`multimodal_vision` = native image_url input mode."
+        ),
+    )
+    llm_model = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default='deepseek-chat',
+        help_text=(
+            "Optional model override for this session. "
+            "Leave empty to use server default model from environment."
+        ),
+    )
+    template_id = serializers.UUIDField(
+        source='selected_template_id',
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Template UUID used in `site` mode generation. "
+            "Use null for `template` mode."
+        ),
+    )
+
     class Meta:
         model = AICopilotSession
-        fields = ['mode', 'llm_mode', 'llm_model', 'title', 'selected_template_id']
+        fields = ['mode', 'llm_mode', 'llm_model', 'title', 'template_id']
 
 
 class AICopilotAttachmentSerializer(serializers.ModelSerializer):
@@ -53,6 +82,7 @@ class AIGenerationDraftSerializer(serializers.ModelSerializer):
 
 class AICopilotSessionSerializer(serializers.ModelSerializer):
     messages = AICopilotMessageSerializer(many=True, read_only=True)
+    template_id = serializers.UUIDField(source='selected_template_id', allow_null=True, read_only=True)
 
     class Meta:
         model = AICopilotSession
@@ -65,7 +95,7 @@ class AICopilotSessionSerializer(serializers.ModelSerializer):
             'title',
             'created_by_user_id',
             'created_by_email',
-            'selected_template_id',
+            'template_id',
             'context_summary',
             'metadata',
             'messages',

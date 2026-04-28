@@ -108,7 +108,7 @@ def generate_drafts(session: AICopilotSession):
 
     elif session.mode == AICopilotSession.MODE_SITE:
         if not session.selected_template_id:
-            raise CopilotServiceError('selected_template_id is required for site mode generation.')
+            raise CopilotServiceError('template_id is required for site mode generation.')
         site_payload = adapter.generate_site_content_draft(context, session.selected_template_id)
         validate_payload('site-content.schema.json', site_payload)
         s_draft = _save_draft(session, AIGenerationDraft.TYPE_SITE_CONTENT, payload_json=site_payload)
