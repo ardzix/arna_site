@@ -113,9 +113,67 @@ class DeepSeekAdapter:
             }
 
         prompt = (
-            'Generate a valid JSON object for an ArnaSite template draft. '
-            'Return JSON only with fields required by template.schema.json. '
-            f'Context: {context_text}'
+            "Generate a valid JSON object for ArnaSite template draft.\n"
+            "STRICT RULES:\n"
+            "1) Return JSON only.\n"
+            "2) Do not include any keys outside this exact top-level set:\n"
+            "   name, slug, description, category, preview_image_url, pages, extra_conventions\n"
+            "3) Required top-level keys: name, slug, description, category, preview_image_url, pages, extra_conventions\n"
+            "4) pages must be array of objects with keys: title, slug, order, is_home, sections\n"
+            "5) sections must be array of objects with keys: type, order, is_active, blocks\n"
+            "6) blocks must be array of objects with keys: title, subtitle, description, image_url, order, extra, items\n"
+            "7) items must be array of objects with keys: title, description, icon, order\n"
+            "8) Do not output keys like: theme, footer, language, sections (top-level), title (top-level)\n"
+            "9) image_url and preview_image_url must be absolute URL.\n"
+            f"Context:\n{context_text}"
+        )
+        return self._chat_json(prompt, model_override=self.model)
+
+    def repair_template_draft(self, invalid_payload, validation_errors):
+        if not self.api_key:
+            return {
+                'name': 'AI Generated Business Template',
+                'slug': 'ai-generated-business-template',
+                'description': 'Auto-repaired fallback template draft.',
+                'category': 'business',
+                'preview_image_url': 'https://example.com/preview.jpg',
+                'pages': [
+                    {
+                        'title': 'Home',
+                        'slug': 'home',
+                        'order': 1,
+                        'is_home': True,
+                        'sections': [
+                            {
+                                'type': 'hero',
+                                'order': 1,
+                                'is_active': True,
+                                'blocks': [
+                                    {
+                                        'title': 'Welcome',
+                                        'subtitle': 'Business subtitle',
+                                        'description': 'Business description',
+                                        'image_url': 'https://example.com/hero.jpg',
+                                        'order': 1,
+                                        'extra': {'cta_text': 'Get Started', 'cta_url': '/contact'},
+                                        'items': [],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+                'extra_conventions': {'hero': {'cta_text': 'string', 'cta_url': 'string'}},
+            }
+
+        prompt = (
+            "You produced invalid JSON for ArnaSite template schema.\n"
+            "Rewrite into STRICT valid JSON only.\n"
+            "Allowed top-level keys ONLY:\n"
+            "name, slug, description, category, preview_image_url, pages, extra_conventions\n"
+            "Never include additional top-level keys.\n"
+            f"Validation errors: {validation_errors}\n"
+            f"Previous invalid payload: {json.dumps(invalid_payload)[:20000]}"
         )
         return self._chat_json(prompt, model_override=self.model)
 

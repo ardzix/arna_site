@@ -92,7 +92,15 @@ def generate_drafts(session: AICopilotSession):
 
     if session.mode == AICopilotSession.MODE_TEMPLATE:
         template_payload = adapter.generate_template_draft(context)
-        validate_payload('template.schema.json', template_payload)
+        try:
+            validate_payload('template.schema.json', template_payload)
+        except SchemaValidationError as first_err:
+            # One repair pass for LLM outputs that miss strict schema contract.
+            template_payload = adapter.repair_template_draft(
+                invalid_payload=template_payload,
+                validation_errors=first_err,
+            )
+            validate_payload('template.schema.json', template_payload)
         t_draft = _save_draft(session, AIGenerationDraft.TYPE_TEMPLATE, payload_json=template_payload)
         validation_reports['template_draft_id'] = str(t_draft.id)
 
