@@ -747,3 +747,255 @@ NEXT_PUBLIC_PUBLIC_API_URL=http://localhost:8000
 4. **ISR / SSG untuk public site** — gunakan `next: { revalidate: 60 }` atau trigger revalidation via webhook setiap kali konten diupdate dari dashboard.
 
 5. **Multi-page navigation** — `GET /api/public/site/` mengembalikan daftar semua halaman aktif. Gunakan ini untuk membangun navbar/sitemap publik.
+
+---
+
+## AI Copilot Integration (ChatGPT-like UX)
+
+Dokumen ini menambahkan panduan FE untuk fitur `AI Site Copilot` (`/api/ai/*`) dengan pengalaman yang menyerupai antarmuka ChatGPT.
+
+### Tujuan UX
+
+- Memberi pengalaman brainstorming cepat seperti chat assistant modern.
+- Menyediakan dua mode yang bisa dipilih user:
+  - `chat_economy` (hemat token, text-first)
+  - `multimodal_vision` (native vision untuk analisis screenshot/image)
+- Menghasilkan draft terstruktur yang bisa di-review lalu publish.
+
+### Endpoint yang Dipakai
+
+Base: `https://{tenant-domain}`
+
+```
+POST /api/ai/sessions/
+GET  /api/ai/sessions/
+GET  /api/ai/sessions/{session_id}/
+POST /api/ai/sessions/{session_id}/messages/
+POST /api/ai/sessions/{session_id}/generate/
+GET  /api/ai/sessions/{session_id}/drafts/
+POST /api/ai/sessions/{session_id}/publish/
+GET  /api/ai/sessions/{session_id}/fe-guide/
+```
+
+Header standar:
+```
+Authorization: Bearer <jwt_token>
+Content-Type: application/json
+```
+
+---
+
+### Full FE Flow
+
+#### 1) Create Session
+
+User pilih mode kerja:
+- Business mode: `template` atau `site`
+- LLM mode: `chat_economy` atau `multimodal_vision`
+
+```json
+POST /api/ai/sessions/
+{
+  "mode": "template",
+  "llm_mode": "multimodal_vision",
+  "llm_model": "",
+  "title": "Nusa Prima New Site"
+}
+```
+
+#### 2) Send Message + Optional Images
+
+User mengetik prompt, lalu attach referensi screenshot.
+
+Catatan penting:
+- Gunakan flow `/api/files/...` dulu untuk upload file.
+- Setelah upload selesai, kirim URL hasil upload sebagai `attachments`.
+
+```json
+POST /api/ai/sessions/{id}/messages/
+{
+  "role": "user",
+  "content": "Saya ingin style homepage seperti referensi ini, lebih clean dan trust-oriented.",
+  "attachments": [
+    {
+      "type": "image",
+      "url": "https://storage.arnatech.id/files/xxx.jpg",
+      "mime_type": "image/jpeg",
+      "caption": "Hero inspiration"
+    }
+  ]
+}
+```
+
+Response akan berisi `assistant_reply` untuk melanjutkan brainstorming.
+
+#### 3) Generate Draft
+
+Saat user merasa diskusi cukup, klik tombol `Generate`:
+
+```json
+POST /api/ai/sessions/{id}/generate/
+{}
+```
+
+- Jika mode `template`: hasil draft template + draft FE guide.
+- Jika mode `site`: hasil draft konten website.
+
+#### 4) Review Draft Panel
+
+Load draft:
+
+```
+GET /api/ai/sessions/{id}/drafts/
+```
+
+Tampilkan:
+- `template` draft JSON
+- `site_content` draft JSON
+- `fe_guide` draft markdown/json
+
+#### 5) Publish
+
+Template mode:
+```json
+POST /api/ai/sessions/{id}/publish/
+{
+  "template_draft_id": "<uuid>",
+  "fe_guide_draft_id": "<uuid>"
+}
+```
+
+Site mode:
+```json
+POST /api/ai/sessions/{id}/publish/
+{
+  "site_content_draft_id": "<uuid>",
+  "overwrite": false
+}
+```
+
+---
+
+### ChatGPT-like Layout Recommendation
+
+### Desktop Layout
+
+Gunakan layout 3 kolom:
+
+```
+┌────────────────────┬──────────────────────────────────────────────┬─────────────────────────────┐
+│ LEFT SIDEBAR       │ CHAT THREAD                                  │ RIGHT PANEL                 │
+│                    │                                              │                             │
+│ + New Session      │  Assistant/User message bubbles             │ Drafts                      │
+│ Session list       │  Attachment previews                         │ - Template JSON             │
+│ - title            │  Streaming-like response feel                │ - Site Content JSON         │
+│ - mode badge       │                                              │ - FE Guide Markdown         │
+│ - updated time     │  Composer (sticky bottom):                   │                             │
+│                    │  [attach] [mode toggle] [send]              │ Publish CTA                 │
+└────────────────────┴──────────────────────────────────────────────┴─────────────────────────────┘
+```
+
+### Mobile Layout
+
+- Screen 1: chat thread + composer
+- Screen 2 (drawer/bottom-sheet): session list
+- Screen 3 (drawer/bottom-sheet): drafts & publish
+
+---
+
+### UI Components (recommended)
+
+- `CopilotSessionSidebar`
+  - list sessions + `New Session`
+- `CopilotModeSwitcher`
+  - segmented control: `Economy` / `Vision`
+- `CopilotChatThread`
+  - user/assistant bubbles
+  - attachment thumbnail grid
+- `CopilotComposer`
+  - textarea autosize
+  - image attach button
+  - send button
+- `CopilotDraftPanel`
+  - tabs: `Template`, `Site`, `FE Guide`
+  - JSON viewer + markdown viewer
+- `CopilotPublishBar`
+  - publish button + overwrite toggle (site mode)
+
+---
+
+### Interaction Details (agar terasa seperti ChatGPT)
+
+1. **Sticky composer** di bawah viewport.
+2. **Auto-scroll** ke message terbaru saat reply masuk.
+3. **Keyboard-first**:
+- Enter = send
+- Shift+Enter = newline
+4. **Message status**:
+- `sending`, `sent`, `error`
+5. **Attachment chips** sebelum send:
+- thumbnail, filename, remove action
+6. **Mode visibility**:
+- tampilkan badge aktif: `Economy` / `Vision`
+7. **Draft generation status**:
+- idle -> generating -> ready -> failed
+
+---
+
+### Suggested FE State Model
+
+Gunakan kombinasi:
+- `TanStack Query` untuk server state (`sessions`, `messages`, `drafts`)
+- `Zustand` untuk local UI state (`selectedSessionId`, `composerText`, `uploadQueue`, `panelOpen`)
+
+Entity minimal:
+
+```ts
+type CopilotSession = {
+  id: string
+  mode: 'template' | 'site'
+  llm_mode: 'chat_economy' | 'multimodal_vision'
+  llm_model: string
+  status: 'active' | 'generated' | 'published' | 'failed'
+  title: string
+  created_at: string
+  updated_at: string
+}
+```
+
+---
+
+### Permission-aware UI
+
+- Jika user hanya member (non admin/owner):
+  - disable tombol write (`send`, `generate`, `publish`)
+  - tampilkan label read-only.
+- Jika admin/owner:
+  - semua aksi aktif.
+
+---
+
+### Error Handling (AI-specific)
+
+Tambahkan handling berikut:
+
+| HTTP | Kasus | FE Action |
+|------|------|-----------|
+| `400` | schema invalid / publish invalid | tampilkan detail error di draft panel |
+| `401` | token invalid/expired | refresh token / relogin |
+| `403` | permission denied | tampilkan access denied |
+| `404` | session/draft tidak ditemukan | redirect ke session list |
+| `500` | server error | fallback toast + log Sentry |
+
+---
+
+### Practical UX Tips
+
+1. Default mode saat create session: `chat_economy`.
+2. Tampilkan tooltip:
+- `Economy`: faster + cheaper
+- `Vision`: better for screenshot analysis
+3. Saat user attach image pertama, sarankan switch ke `Vision`.
+4. Simpan drafts otomatis di panel kanan agar user tidak kehilangan context.
+5. Beri CTA jelas setelah generate: `Review Draft` -> `Publish`.
+

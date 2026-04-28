@@ -117,7 +117,7 @@ SSO_IAM_PROVISION_ON_REGISTER = os.getenv(
 DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
-DEEPSEEK_VISION_MODEL = os.getenv('DEEPSEEK_VISION_MODEL', '')
+DEEPSEEK_VISION_MODEL = os.getenv('DEEPSEEK_VISION_MODEL', 'deepseek-chat')
 
 # JWT verification — public key issued by Arna SSO (RS256)
 _jwt_key_raw = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', 'public.pem')
