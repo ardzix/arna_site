@@ -1,4 +1,5 @@
 import json
+import re
 import requests
 from django.conf import settings
 
@@ -278,7 +279,7 @@ class DeepSeekAdapter:
             {'role': 'system', 'content': 'Return JSON only.'},
             {'role': 'user', 'content': prompt},
         ], model_override=model_override)
-        return json.loads(content)
+        return self._parse_json_content(content)
 
     def _enforce_brainstorm_guardrail(self, reply: str, llm_messages, model_override: str) -> str:
         """
@@ -300,3 +301,50 @@ class DeepSeekAdapter:
             )
             return repaired
         return reply
+
+    def _parse_json_content(self, content: str):
+        """
+        Parse model output into JSON with light recovery:
+        1) direct json.loads
+        2) remove markdown code fences
+        3) extract first JSON object/array block
+        """
+        raw = (content or '').strip()
+        if not raw:
+            raise ValueError('Empty model response while JSON was expected.')
+
+        # 1) direct parse
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+
+        # 2) strip ```json ... ```
+        fence_match = re.search(r"```(?:json)?\s*(.*?)```", raw, flags=re.IGNORECASE | re.DOTALL)
+        if fence_match:
+            candidate = fence_match.group(1).strip()
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+        # 3) extract first {...} or [...]
+        obj_start = raw.find('{')
+        obj_end = raw.rfind('}')
+        if obj_start != -1 and obj_end != -1 and obj_end > obj_start:
+            candidate = raw[obj_start:obj_end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+        arr_start = raw.find('[')
+        arr_end = raw.rfind(']')
+        if arr_start != -1 and arr_end != -1 and arr_end > arr_start:
+            candidate = raw[arr_start:arr_end + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+
+        raise ValueError('Model did not return valid JSON content.')
