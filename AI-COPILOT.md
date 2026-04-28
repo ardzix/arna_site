@@ -203,6 +203,12 @@ If `DEEPSEEK_API_KEY` is empty:
 - Publish is blocked if schema validation fails.
 - In `chat_economy`, image references are flattened to text.
 - In `multimodal_vision`, attachments are sent as native `image_url` message parts.
+- Brainstorm replies are guardrailed to requirement discussion only:
+  - no HTML/code blocks
+  - no implementation snippets
+  - no full template JSON in chat phase
+  - simple Bahasa Indonesia for business users
+  - structured output is generated only at `POST /generate/`
 
 ## Current Limitations
 - No async job queue yet (generation is synchronous request/response).

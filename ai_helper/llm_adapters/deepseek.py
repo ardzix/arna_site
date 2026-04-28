@@ -19,21 +19,34 @@ class DeepSeekAdapter:
     def brainstorm_reply(self, messages, mode, llm_mode='chat_economy', llm_model=''):
         if not self.api_key:
             return (
-                f"I collected your context for {mode} mode. "
-                "When you are ready, click Generate to create structured drafts."
+                "Terima kasih, saya sudah menangkap kebutuhan Anda. "
+                "Kita lanjutkan diskusi requirement dulu (target audiens, tujuan halaman, CTA, tone). "
+                "Jika sudah cukup, klik Generate untuk membuat draft terstruktur."
             )
 
         system_prompt = (
-            'You are ArnaSite AI Copilot. Help users brainstorm website structure and content. '
-            'Return concise guidance in English.'
+            "You are ArnaSite AI Copilot for business users (non-technical audience). "
+            "Your job in chat phase is requirement discovery only.\n"
+            "Hard rules:\n"
+            "1) DO NOT output HTML, CSS, JS, JSX, code blocks, or implementation code.\n"
+            "2) DO NOT output full template/site JSON in chat phase.\n"
+            "3) Keep language simple, practical, and non-technical for business users.\n"
+            "4) Ask focused follow-up questions to clarify goals and content.\n"
+            "5) Keep response short (max 8 bullet points or short paragraphs).\n"
+            "6) Mention that structured data will be generated when user clicks Generate.\n"
+            "7) If user asks for code, politely redirect to requirements discussion first.\n"
+            "Output language: Bahasa Indonesia.\n"
+            "For template mode, discussion should map to structured sections/pages/CTA/content needs.\n"
+            "For site mode, discussion should map to template-specific content requirements."
         )
 
         if llm_mode == 'multimodal_vision':
             llm_messages = [{'role': 'system', 'content': system_prompt}] + messages
-            return self._chat_text(
+            reply = self._chat_text(
                 llm_messages,
                 model_override=llm_model or self.vision_model,
             )
+            return self._enforce_brainstorm_guardrail(reply, llm_messages, llm_model or self.vision_model)
 
         # Economy mode: flatten multimodal content to plain text.
         text_messages = []
@@ -51,10 +64,11 @@ class DeepSeekAdapter:
             text_messages.append({'role': m.get('role', 'user'), 'content': content})
 
         llm_messages = [{'role': 'system', 'content': system_prompt}] + text_messages
-        return self._chat_text(
+        reply = self._chat_text(
             llm_messages,
             model_override=llm_model or self.model,
         )
+        return self._enforce_brainstorm_guardrail(reply, llm_messages, llm_model or self.model)
 
     def generate_template_draft(self, context_text):
         if not self.api_key:
@@ -207,3 +221,24 @@ class DeepSeekAdapter:
             {'role': 'user', 'content': prompt},
         ], model_override=model_override)
         return json.loads(content)
+
+    def _enforce_brainstorm_guardrail(self, reply: str, llm_messages, model_override: str) -> str:
+        """
+        Safety net for brainstorming phase.
+        If model still returns code-like output, request a corrected non-technical response.
+        """
+        suspicious_patterns = ['```', '<html', '</html', '<style', '</style', '<script', '</script']
+        lowered = reply.lower()
+        if any(p in lowered for p in suspicious_patterns):
+            repair_instruction = (
+                "Your previous response violated policy (code/HTML returned). "
+                "Rewrite ONLY as requirement discussion in simple Bahasa Indonesia for business users. "
+                "No code block, no HTML, no JSON. "
+                "Ask 3-5 practical clarifying questions and mention user can click Generate later."
+            )
+            repaired = self._chat_text(
+                llm_messages + [{'role': 'user', 'content': repair_instruction}],
+                model_override=model_override,
+            )
+            return repaired
+        return reply
