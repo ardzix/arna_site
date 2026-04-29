@@ -101,6 +101,7 @@ The validator uses `jsonschema` (added to `requirements.txt`).
 3. `generate` produces:
 - template draft JSON
 - FE guide draft JSON + markdown
+  - FE guide is focused on frontend implementation guidance (component architecture, HTML semantics, responsive UX, theming), not business copy content
 4. User publishes selected drafts
 5. Backend writes into:
 - `Template`
