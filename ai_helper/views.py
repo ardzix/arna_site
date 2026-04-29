@@ -4,9 +4,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.db import connection
+from django_q.tasks import async_task
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
-from ai_helper.models import AICopilotSession, AIGenerationDraft
+from ai_helper.models import AICopilotSession, AIGenerationDraft, AIAsyncJob
 from ai_helper.serializers import (
     AICopilotSessionCreateSerializer,
     AICopilotSessionSerializer,
@@ -14,16 +16,12 @@ from ai_helper.serializers import (
     AIGenerationDraftSerializer,
     AIGenerateRequestSerializer,
     AIPublishRequestSerializer,
+    AIAsyncJobSerializer,
 )
 from ai_helper.services import (
     add_user_message,
     generate_brainstorm_reply,
-    generate_drafts,
-    CopilotServiceError,
-    publish_template_from_draft,
-    publish_site_content_from_draft,
 )
-from ai_helper.validators import SchemaValidationError
 
 
 READ_METHODS = {'GET'}
@@ -133,11 +131,17 @@ class AISessionMessageCreateView(APIView):
         )
 
         assistant_reply = generate_brainstorm_reply(session)
-        return Response({'status': 'ok', 'assistant_reply': assistant_reply}, status=201)
+        return Response(
+            {
+                'status': AIAsyncJob.STATUS_DONE,
+                'result': {'assistant_reply': assistant_reply},
+            },
+            status=201,
+        )
 
 
 class AISessionGenerateView(APIView):
-    """Generate schema-validated drafts for the current session mode."""
+    """Enqueue asynchronous draft generation job for the current session."""
     def get_permissions(self):
         return _write_permissions()
 
@@ -145,13 +149,12 @@ class AISessionGenerateView(APIView):
         operation_summary='Generate AI drafts',
         request_body=AIGenerateRequestSerializer,
         responses={
-            200: openapi.Schema(
+            202: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
                     'status': openapi.Schema(type=openapi.TYPE_STRING),
-                    'template_draft_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                    'fe_guide_draft_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                    'site_content_draft_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
+                    'job_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
+                    'check_status_url': openapi.Schema(type=openapi.TYPE_STRING),
                 },
             ),
             400: openapi.Response('Validation or generation error'),
@@ -163,13 +166,46 @@ class AISessionGenerateView(APIView):
         req = AIGenerateRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
 
+        existing = AIAsyncJob.objects.filter(
+            session=session,
+            operation=AIAsyncJob.OP_GENERATE,
+            status__in=[AIAsyncJob.STATUS_ASKING, AIAsyncJob.STATUS_THINKING],
+        ).order_by('-created_at').first()
+
+        if existing:
+            return Response(
+                {
+                    'status': existing.status,
+                    'job_id': str(existing.id),
+                    'check_status_url': f'/api/ai/jobs/{existing.id}/status/',
+                },
+                status=202,
+            )
+
+        job = AIAsyncJob.objects.create(
+            session=session,
+            operation=AIAsyncJob.OP_GENERATE,
+            status=AIAsyncJob.STATUS_ASKING,
+            input_json=req.validated_data,
+        )
         try:
-            result = generate_drafts(session)
-            return Response({'status': 'generated', **result})
-        except (CopilotServiceError, SchemaValidationError) as exc:
-            session.status = AICopilotSession.STATUS_FAILED
-            session.save(update_fields=['status', 'updated_at'])
-            return Response({'error': str(exc)}, status=400)
+            q_id = async_task('ai_helper.tasks.run_ai_job', str(job.id), connection.schema_name)
+            job.q_task_id = str(q_id or '')
+            job.save(update_fields=['q_task_id'])
+        except Exception as exc:
+            job.status = AIAsyncJob.STATUS_FAILED
+            job.error = f'Failed to enqueue generate job: {exc}'
+            job.save(update_fields=['status', 'error'])
+            return Response({'error': str(job.error)}, status=503)
+
+        return Response(
+            {
+                'status': AIAsyncJob.STATUS_ASKING,
+                'job_id': str(job.id),
+                'check_status_url': f'/api/ai/jobs/{job.id}/status/',
+            },
+            status=202,
+        )
 
 
 class AISessionDraftListView(APIView):
@@ -202,7 +238,7 @@ class AISessionPublishView(APIView):
         operation_summary='Publish AI draft(s)',
         request_body=AIPublishRequestSerializer,
         responses={
-            200: openapi.Response('Publish success'),
+            202: openapi.Response('Publish job queued'),
             400: openapi.Response('Publish error'),
         },
         security=[{'Bearer': []}],
@@ -212,31 +248,50 @@ class AISessionPublishView(APIView):
         req = AIPublishRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
 
+        if session.mode == AICopilotSession.MODE_TEMPLATE and not req.validated_data.get('template_draft_id'):
+            return Response({'error': 'template_draft_id is required for template mode.'}, status=400)
+        if session.mode == AICopilotSession.MODE_SITE and not req.validated_data.get('site_content_draft_id'):
+            return Response({'error': 'site_content_draft_id is required for site mode.'}, status=400)
+
+        existing = AIAsyncJob.objects.filter(
+            session=session,
+            operation=AIAsyncJob.OP_PUBLISH,
+            status__in=[AIAsyncJob.STATUS_ASKING, AIAsyncJob.STATUS_THINKING],
+        ).order_by('-created_at').first()
+        if existing:
+            return Response(
+                {
+                    'status': existing.status,
+                    'job_id': str(existing.id),
+                    'check_status_url': f'/api/ai/jobs/{existing.id}/status/',
+                },
+                status=202,
+            )
+
+        job = AIAsyncJob.objects.create(
+            session=session,
+            operation=AIAsyncJob.OP_PUBLISH,
+            status=AIAsyncJob.STATUS_ASKING,
+            input_json=req.validated_data,
+        )
         try:
-            if session.mode == AICopilotSession.MODE_TEMPLATE:
-                if not req.validated_data.get('template_draft_id'):
-                    return Response({'error': 'template_draft_id is required for template mode.'}, status=400)
-                template = publish_template_from_draft(
-                    session,
-                    req.validated_data['template_draft_id'],
-                    req.validated_data.get('fe_guide_draft_id'),
-                )
-                return Response({'status': 'published', 'template_id': str(template.id)})
+            q_id = async_task('ai_helper.tasks.run_ai_job', str(job.id), connection.schema_name)
+            job.q_task_id = str(q_id or '')
+            job.save(update_fields=['q_task_id'])
+        except Exception as exc:
+            job.status = AIAsyncJob.STATUS_FAILED
+            job.error = f'Failed to enqueue publish job: {exc}'
+            job.save(update_fields=['status', 'error'])
+            return Response({'error': str(job.error)}, status=503)
 
-            if session.mode == AICopilotSession.MODE_SITE:
-                if not req.validated_data.get('site_content_draft_id'):
-                    return Response({'error': 'site_content_draft_id is required for site mode.'}, status=400)
-                result = publish_site_content_from_draft(
-                    session,
-                    req.validated_data['site_content_draft_id'],
-                    overwrite=req.validated_data.get('overwrite', False),
-                )
-                return Response(result)
-
-            return Response({'error': 'Unsupported mode.'}, status=400)
-
-        except (CopilotServiceError, SchemaValidationError) as exc:
-            return Response({'error': str(exc)}, status=400)
+        return Response(
+            {
+                'status': AIAsyncJob.STATUS_ASKING,
+                'job_id': str(job.id),
+                'check_status_url': f'/api/ai/jobs/{job.id}/status/',
+            },
+            status=202,
+        )
 
 
 class AISessionFEGuideView(APIView):
@@ -278,3 +333,21 @@ class AISessionFEGuideView(APIView):
             'markdown': draft.markdown_text,
             'payload': draft.payload_json,
         })
+
+
+class AIJobStatusView(APIView):
+    """Get asynchronous AI job status and result payload (if done)."""
+    def get_permissions(self):
+        return _read_permissions()
+
+    @swagger_auto_schema(
+        operation_summary='Get AI async job status',
+        responses={
+            200: AIAsyncJobSerializer(),
+            404: openapi.Response('Job not found'),
+        },
+        security=[{'Bearer': []}],
+    )
+    def get(self, request, job_id):
+        job = get_object_or_404(AIAsyncJob, id=job_id)
+        return Response(AIAsyncJobSerializer(job).data)

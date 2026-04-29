@@ -64,6 +64,7 @@ All endpoints are under tenant domain:
 6. `GET /api/ai/sessions/{session_id}/drafts/`
 7. `POST /api/ai/sessions/{session_id}/publish/`
 8. `GET /api/ai/sessions/{session_id}/fe-guide/`
+9. `GET /api/ai/jobs/{job_id}/status/`
 
 These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yasg`.
 
@@ -77,6 +78,11 @@ Add in `.env`:
 - `DEEPSEEK_API_KEY` (empty means local fallback mode)
 - `DEEPSEEK_MODEL` (default: `deepseek-chat`)
 - `DEEPSEEK_VISION_MODEL` (optional; used for `multimodal_vision`)
+- `Q_CLUSTER_WORKERS` (default: `2`)
+- `Q_CLUSTER_TIMEOUT` (default: `180`)
+- `Q_CLUSTER_RETRY` (default: `240`)
+- `Q_CLUSTER_QUEUE_LIMIT` (default: `500`)
+- `Q_CLUSTER_BULK` (default: `10`)
 
 ## Schema Validation
 Validation uses files in `ai_schemas/`:
@@ -180,6 +186,15 @@ Authorization: Bearer <token>
 {}
 ```
 
+Response (async):
+```json
+{
+  "status": "asking",
+  "job_id": "uuid",
+  "check_status_url": "/api/ai/jobs/uuid/status/"
+}
+```
+
 ### Publish Template Draft
 ```http
 POST /api/ai/sessions/{session_id}/publish/
@@ -198,6 +213,8 @@ If `DEEPSEEK_API_KEY` is empty:
 - This allows API and publish pipeline testing without external LLM calls.
 
 ## Operational Notes
+- Run worker process for async jobs:
+  - `python manage.py qcluster`
 - Use `/api/files/...` first to upload image assets, then pass resulting URLs in Copilot attachments.
 - Keep prompt context concise; service truncates context to avoid oversized payloads.
 - Publish is blocked if schema validation fails.
@@ -209,6 +226,11 @@ If `DEEPSEEK_API_KEY` is empty:
   - no full template JSON in chat phase
   - simple Bahasa Indonesia for business users
   - structured output is generated only at `POST /generate/`
+- `generate` and `publish` are asynchronous:
+  - `status=asking` when queued
+  - `status=thinking` while worker runs
+  - `status=done` when finished, result available in job status endpoint
+  - `status=failed` when execution fails, error included in job payload
 
 ## Current Limitations
 - No async job queue yet (generation is synchronous request/response).

@@ -4,6 +4,7 @@ from ai_helper.models import (
     AICopilotMessage,
     AICopilotAttachment,
     AIGenerationDraft,
+    AIAsyncJob,
 )
 
 
@@ -30,3 +31,9 @@ class AICopilotAttachmentAdmin(admin.ModelAdmin):
 class AIGenerationDraftAdmin(admin.ModelAdmin):
     list_display = ('id', 'session', 'draft_type', 'version', 'is_selected', 'created_at')
     list_filter = ('draft_type', 'is_selected')
+
+
+@admin.register(AIAsyncJob)
+class AIAsyncJobAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session', 'operation', 'status', 'q_task_id', 'created_at')
+    list_filter = ('operation', 'status')

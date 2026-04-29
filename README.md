@@ -378,11 +378,16 @@ Highlights:
 - Draft generation and schema validation before publish
 - Publish flow into existing Template and Site models
 - FE guide draft generation (`markdown`) for frontend implementation
+- Async job execution for generate/publish with job status endpoint
 
 Detailed implementation and API docs:
 - `AI-COPILOT.md`
 - `AI-IMPLEMENTATION-PLAN.md`
 - `ai_schemas/README.md`
+
+Runtime note:
+- Start Django Q2 worker cluster in a separate process:
+  - `python manage.py qcluster`
 
 ---
 

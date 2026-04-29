@@ -7,6 +7,7 @@ from ai_helper.views import (
     AISessionDraftListView,
     AISessionPublishView,
     AISessionFEGuideView,
+    AIJobStatusView,
 )
 
 urlpatterns = [
@@ -17,4 +18,5 @@ urlpatterns = [
     path('sessions/<uuid:session_id>/drafts/', AISessionDraftListView.as_view(), name='ai-session-drafts'),
     path('sessions/<uuid:session_id>/publish/', AISessionPublishView.as_view(), name='ai-session-publish'),
     path('sessions/<uuid:session_id>/fe-guide/', AISessionFEGuideView.as_view(), name='ai-session-fe-guide'),
+    path('jobs/<uuid:job_id>/status/', AIJobStatusView.as_view(), name='ai-job-status'),
 ]

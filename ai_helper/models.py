@@ -109,3 +109,38 @@ class AIGenerationDraft(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class AIAsyncJob(models.Model):
+    STATUS_ASKING = 'asking'
+    STATUS_THINKING = 'thinking'
+    STATUS_DONE = 'done'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_ASKING, 'Asking'),
+        (STATUS_THINKING, 'Thinking'),
+        (STATUS_DONE, 'Done'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    OP_GENERATE = 'generate'
+    OP_PUBLISH = 'publish'
+    OP_CHOICES = [
+        (OP_GENERATE, 'Generate Drafts'),
+        (OP_PUBLISH, 'Publish Draft'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(AICopilotSession, related_name='jobs', on_delete=models.CASCADE)
+    operation = models.CharField(max_length=20, choices=OP_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ASKING)
+    q_task_id = models.CharField(max_length=64, blank=True)
+    input_json = models.JSONField(default=dict, blank=True)
+    result_json = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']

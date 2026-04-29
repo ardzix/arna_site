@@ -4,6 +4,7 @@ from ai_helper.models import (
     AICopilotMessage,
     AICopilotAttachment,
     AIGenerationDraft,
+    AIAsyncJob,
 )
 
 
@@ -113,3 +114,25 @@ class AIPublishRequestSerializer(serializers.Serializer):
     site_content_draft_id = serializers.UUIDField(required=False)
     fe_guide_draft_id = serializers.UUIDField(required=False)
     overwrite = serializers.BooleanField(required=False, default=False)
+
+
+class AIAsyncJobSerializer(serializers.ModelSerializer):
+    check_status_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AIAsyncJob
+        fields = [
+            'id',
+            'operation',
+            'status',
+            'session',
+            'result_json',
+            'error',
+            'created_at',
+            'started_at',
+            'finished_at',
+            'check_status_url',
+        ]
+
+    def get_check_status_url(self, obj):
+        return f"/api/ai/jobs/{obj.id}/status/"

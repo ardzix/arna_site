@@ -14,6 +14,7 @@ SHARED_APPS = (
     'django_tenants',
     'core',
     'authentication',
+    'django_q',
 
     'rest_framework',
     'drf_yasg',
@@ -118,6 +119,18 @@ DEEPSEEK_BASE_URL = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 DEEPSEEK_VISION_MODEL = os.getenv('DEEPSEEK_VISION_MODEL', 'deepseek-chat')
+
+# django-q2 async jobs
+Q_CLUSTER = {
+    'name': 'arna_site',
+    'workers': int(os.getenv('Q_CLUSTER_WORKERS', '2')),
+    'timeout': int(os.getenv('Q_CLUSTER_TIMEOUT', '180')),
+    'retry': int(os.getenv('Q_CLUSTER_RETRY', '240')),
+    'queue_limit': int(os.getenv('Q_CLUSTER_QUEUE_LIMIT', '500')),
+    'bulk': int(os.getenv('Q_CLUSTER_BULK', '10')),
+    'orm': 'default',
+    'redis': os.getenv('REDIS_URL', 'redis://localhost:6379/1'),
+}
 
 # JWT verification — public key issued by Arna SSO (RS256)
 _jwt_key_raw = os.getenv('SSO_JWT_PUBLIC_KEY_PATH', 'public.pem')

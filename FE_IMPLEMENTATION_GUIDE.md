@@ -775,6 +775,7 @@ POST /api/ai/sessions/{session_id}/generate/
 GET  /api/ai/sessions/{session_id}/drafts/
 POST /api/ai/sessions/{session_id}/publish/
 GET  /api/ai/sessions/{session_id}/fe-guide/
+GET  /api/ai/jobs/{job_id}/status/
 ```
 
 Header standar:
@@ -838,8 +839,20 @@ POST /api/ai/sessions/{id}/generate/
 {}
 ```
 
-- Jika mode `template`: hasil draft template + draft FE guide.
-- Jika mode `site`: hasil draft konten website.
+Response async (langsung dari endpoint utama):
+```json
+{
+  "status": "asking",
+  "job_id": "uuid",
+  "check_status_url": "/api/ai/jobs/uuid/status/"
+}
+```
+
+Status lifecycle:
+- `asking` -> baru diantrikan
+- `thinking` -> sedang diproses worker
+- `done` -> selesai, result tersedia
+- `failed` -> gagal, ada detail error
 
 #### 4) Review Draft Panel
 
@@ -848,6 +861,14 @@ Load draft:
 ```
 GET /api/ai/sessions/{id}/drafts/
 ```
+
+Jika response generate masih `asking`/`thinking`, polling status:
+
+```
+GET /api/ai/jobs/{job_id}/status/
+```
+
+Jika `done`, lanjut load drafts. Jika `failed`, tampilkan `error` ke user.
 
 Tampilkan:
 - `template` draft JSON
@@ -998,4 +1019,3 @@ Tambahkan handling berikut:
 3. Saat user attach image pertama, sarankan switch ke `Vision`.
 4. Simpan drafts otomatis di panel kanan agar user tidak kehilangan context.
 5. Beri CTA jelas setelah generate: `Review Draft` -> `Publish`.
-
