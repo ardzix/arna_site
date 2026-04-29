@@ -114,7 +114,18 @@ def generate_drafts(session: AICopilotSession):
             fe_payload = adapter.generate_fe_guide(template_payload)
         except Exception as exc:
             raise CopilotServiceError(f'Failed to generate FE guide JSON: {exc}')
-        validate_payload('fe-guide.schema.json', fe_payload)
+        try:
+            validate_payload('fe-guide.schema.json', fe_payload)
+        except SchemaValidationError as first_err:
+            try:
+                fe_payload = adapter.repair_fe_guide_draft(
+                    template_payload=template_payload,
+                    invalid_payload=fe_payload,
+                    validation_errors=first_err,
+                )
+            except Exception as exc:
+                raise CopilotServiceError(f'Failed to repair FE guide JSON: {exc}')
+            validate_payload('fe-guide.schema.json', fe_payload)
         g_draft = _save_draft(
             session,
             AIGenerationDraft.TYPE_FE_GUIDE,

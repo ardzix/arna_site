@@ -255,6 +255,20 @@ class DeepSeekAdapter:
         )
         return self._chat_json(prompt, model_override=self.model)
 
+    def repair_fe_guide_draft(self, template_payload, invalid_payload, validation_errors):
+        if not self.api_key:
+            # Deterministic fallback in local/mock mode.
+            return self.generate_fe_guide(template_payload)
+
+        prompt = (
+            'Fix this invalid FE guide JSON so it strictly matches fe-guide.schema.json. '
+            'Return JSON only, no markdown fences.\n'
+            f'Validation errors: {validation_errors}\n'
+            f'Template payload (reference): {json.dumps(template_payload)[:10000]}\n'
+            f'Invalid FE guide JSON: {json.dumps(invalid_payload)[:10000]}'
+        )
+        return self._chat_json(prompt, model_override=self.model)
+
     def _chat_text(self, messages, model_override=''):
         payload = {
             'model': model_override or self.model,
