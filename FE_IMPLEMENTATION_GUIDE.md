@@ -782,6 +782,10 @@ Notes for sidebar:
 - `GET /api/ai/sessions/` already returns lightweight list items.
 - It does not include full message history.
 - Use `subtitle` as preview text (last assistant reply, truncated by backend).
+- Use load-more params:
+  - `limit` (default `20`, max `100`)
+  - `offset` (default `0`)
+- Response includes `items`, `has_more`, `next_offset`, `total`.
 
 Header standar:
 ```

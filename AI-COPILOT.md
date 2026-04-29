@@ -73,6 +73,14 @@ These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yas
 `GET /api/ai/sessions/` is optimized for sidebar usage:
 - no full `messages` array
 - includes lightweight `subtitle` from last assistant message (truncated)
+- supports load-more pagination via query params:
+  - `limit` (default `20`, max `100`)
+  - `offset` (default `0`)
+- returns:
+  - `items` (session rows)
+  - `has_more` (boolean)
+  - `next_offset` (null when end reached)
+  - `total`
 
 ## Permissions
 - Read operations: `IsAuthenticated + IsTenantMember`

@@ -53,15 +53,67 @@ class AISessionListCreateView(APIView):
     @swagger_auto_schema(
         operation_summary='List AI Copilot sessions (sidebar payload)',
         operation_description=(
-            "Return lightweight session items for sidebar list. "
+            "Return lightweight session items for sidebar list with load-more pagination. "
             "This endpoint intentionally excludes full message history."
         ),
-        responses={200: AICopilotSessionListSerializer(many=True)},
+        manual_parameters=[
+            openapi.Parameter(
+                'limit',
+                openapi.IN_QUERY,
+                description='Number of items per page (default: 20, max: 100).',
+                type=openapi.TYPE_INTEGER,
+            ),
+            openapi.Parameter(
+                'offset',
+                openapi.IN_QUERY,
+                description='Start index for pagination (default: 0).',
+                type=openapi.TYPE_INTEGER,
+            ),
+        ],
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'items': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                    'limit': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'offset': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'next_offset': openapi.Schema(type=openapi.TYPE_INTEGER, x_nullable=True),
+                    'has_more': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                    'total': openapi.Schema(type=openapi.TYPE_INTEGER),
+                },
+            ),
+        },
         security=[{'Bearer': []}],
     )
     def get(self, request):
-        sessions = AICopilotSession.objects.all()
-        return Response(AICopilotSessionListSerializer(sessions, many=True).data)
+        try:
+            limit = int(request.query_params.get('limit', 20))
+        except (TypeError, ValueError):
+            limit = 20
+        try:
+            offset = int(request.query_params.get('offset', 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+
+        qs = AICopilotSession.objects.order_by('-created_at')
+        total = qs.count()
+        sessions = qs[offset:offset + limit]
+        items = AICopilotSessionListSerializer(sessions, many=True).data
+
+        next_offset = offset + limit if (offset + limit) < total else None
+        return Response(
+            {
+                'items': items,
+                'limit': limit,
+                'offset': offset,
+                'next_offset': next_offset,
+                'has_more': next_offset is not None,
+                'total': total,
+            }
+        )
 
     @swagger_auto_schema(
         operation_summary='Create AI Copilot session',
