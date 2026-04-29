@@ -1,4 +1,5 @@
 from rest_framework import serializers
+import re
 from ai_helper.models import (
     AICopilotSession,
     AICopilotMessage,
@@ -127,6 +128,9 @@ class AICopilotSessionListSerializer(serializers.ModelSerializer):
         if not last_ai:
             return ''
         text = (last_ai.content or '').strip()
+        # Keep sidebar subtitle clean: remove common markdown markers and collapse whitespace.
+        text = re.sub(r'[`*_#>\[\]\(\)\-~|]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
         if len(text) <= 160:
             return text
         return f'{text[:157].rstrip()}...'
