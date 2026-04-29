@@ -258,7 +258,7 @@ class DeepSeekAdapter:
     def repair_fe_guide_draft(self, template_payload, invalid_payload, validation_errors):
         if not self.api_key:
             # Deterministic fallback in local/mock mode.
-            return self.generate_fe_guide(template_payload)
+            return self.build_fe_guide_from_template(template_payload)
 
         prompt = (
             'Fix this invalid FE guide JSON so it strictly matches fe-guide.schema.json. '
@@ -268,6 +268,64 @@ class DeepSeekAdapter:
             f'Invalid FE guide JSON: {json.dumps(invalid_payload)[:10000]}'
         )
         return self._chat_json(prompt, model_override=self.model)
+
+    def build_fe_guide_from_template(self, template_payload):
+        """Deterministic FE guide builder from template payload (schema-safe fallback)."""
+        pages = template_payload.get('pages', []) or []
+        section_types = []
+        for page in pages:
+            for section in page.get('sections', []) or []:
+                s_type = str(section.get('type', '')).strip()
+                if s_type and s_type not in section_types:
+                    section_types.append(s_type)
+        if not section_types:
+            section_types = ['hero']
+
+        section_catalog = []
+        component_mapping = []
+        for s_type in section_types:
+            section_catalog.append({
+                'type': s_type,
+                'purpose': f'Render {s_type} section content for this template.',
+                'required_fields': ['title', 'description'],
+                'optional_fields': ['subtitle', 'image_url', 'extra', 'items'],
+            })
+            component_mapping.append({
+                'section_type': s_type,
+                'component_name': f"{''.join(part.capitalize() for part in s_type.replace('-', '_').split('_'))}Section",
+                'props_contract': 'section.blocks[] with title, subtitle, description, image_url, extra, items',
+            })
+
+        template_name = template_payload.get('name', 'Template')
+        markdown_lines = [
+            f"# Frontend Guide - {template_name}",
+            "",
+            "## Section Mapping",
+        ]
+        for s_type in section_types:
+            markdown_lines.append(f"- `{s_type}` -> `{''.join(part.capitalize() for part in s_type.replace('-', '_').split('_'))}Section`")
+
+        markdown_lines.extend([
+            "",
+            "## Implementation Notes",
+            "- Sort pages/sections/blocks by `order` ascending.",
+            "- Render only active entities (`is_active=true`).",
+            "- Keep component props resilient to optional fields.",
+        ])
+
+        return {
+            'title': f"Frontend Guide - {template_name}",
+            'summary': 'Deterministic FE guide generated from template structure.',
+            'section_catalog': section_catalog,
+            'component_mapping': component_mapping,
+            'example_payload': template_payload,
+            'implementation_notes': [
+                'Sort pages, sections, and blocks by order ascending.',
+                'Render only active sections and pages.',
+                'Map each section.type to corresponding React component.',
+            ],
+            'markdown': '\n'.join(markdown_lines),
+        }
 
     def _chat_text(self, messages, model_override=''):
         payload = {
