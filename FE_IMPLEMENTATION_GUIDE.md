@@ -778,6 +778,11 @@ GET  /api/ai/sessions/{session_id}/fe-guide/
 GET  /api/ai/jobs/{job_id}/status/
 ```
 
+Notes for sidebar:
+- `GET /api/ai/sessions/` already returns lightweight list items.
+- It does not include full message history.
+- Use `subtitle` as preview text (last assistant reply, truncated by backend).
+
 Header standar:
 ```
 Authorization: Bearer <jwt_token>

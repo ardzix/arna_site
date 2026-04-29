@@ -70,6 +70,10 @@ All endpoints are under tenant domain:
 
 These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yasg`.
 
+`GET /api/ai/sessions/` is optimized for sidebar usage:
+- no full `messages` array
+- includes lightweight `subtitle` from last assistant message (truncated)
+
 ## Permissions
 - Read operations: `IsAuthenticated + IsTenantMember`
 - Write/generate/publish: `IsAuthenticated + IsTenantMember + (IsTenantAdmin or IsTenantOwner)`

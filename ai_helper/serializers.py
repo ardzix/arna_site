@@ -105,6 +105,33 @@ class AICopilotSessionSerializer(serializers.ModelSerializer):
         ]
 
 
+class AICopilotSessionListSerializer(serializers.ModelSerializer):
+    template_id = serializers.UUIDField(source='selected_template_id', allow_null=True, read_only=True)
+    subtitle = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AICopilotSession
+        fields = [
+            'id',
+            'mode',
+            'status',
+            'title',
+            'template_id',
+            'subtitle',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_subtitle(self, obj):
+        last_ai = obj.messages.filter(role=AICopilotMessage.ROLE_ASSISTANT).order_by('-seq', '-created_at').first()
+        if not last_ai:
+            return ''
+        text = (last_ai.content or '').strip()
+        if len(text) <= 160:
+            return text
+        return f'{text[:157].rstrip()}...'
+
+
 class AIGenerateRequestSerializer(serializers.Serializer):
     regenerate = serializers.BooleanField(required=False, default=False)
 

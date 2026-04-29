@@ -12,6 +12,7 @@ from ai_helper.models import AICopilotSession, AIGenerationDraft, AIAsyncJob
 from ai_helper.serializers import (
     AICopilotSessionCreateSerializer,
     AICopilotSessionSerializer,
+    AICopilotSessionListSerializer,
     AICopilotMessageCreateSerializer,
     AIGenerationDraftSerializer,
     AIGenerateRequestSerializer,
@@ -49,9 +50,18 @@ class AISessionListCreateView(APIView):
             return _read_permissions()
         return _write_permissions()
 
+    @swagger_auto_schema(
+        operation_summary='List AI Copilot sessions (sidebar payload)',
+        operation_description=(
+            "Return lightweight session items for sidebar list. "
+            "This endpoint intentionally excludes full message history."
+        ),
+        responses={200: AICopilotSessionListSerializer(many=True)},
+        security=[{'Bearer': []}],
+    )
     def get(self, request):
         sessions = AICopilotSession.objects.all()
-        return Response(AICopilotSessionSerializer(sessions, many=True).data)
+        return Response(AICopilotSessionListSerializer(sessions, many=True).data)
 
     @swagger_auto_schema(
         operation_summary='Create AI Copilot session',
@@ -64,7 +74,7 @@ class AISessionListCreateView(APIView):
             "2) Poll `/api/ai/jobs/{job_id}/status/` for assistant reply."
         ),
         request_body=AICopilotSessionCreateSerializer,
-        responses={201: AICopilotSessionSerializer()},
+        responses={201: AICopilotSessionListSerializer()},
         security=[{'Bearer': []}],
     )
     def post(self, request):
@@ -84,7 +94,7 @@ class AISessionListCreateView(APIView):
             created_by_user_id=str(getattr(user, 'id', '')),
             created_by_email=getattr(user, 'email', ''),
         )
-        return Response(AICopilotSessionSerializer(session).data, status=201)
+        return Response(AICopilotSessionListSerializer(session).data, status=201)
 
 
 class AISessionDetailView(APIView):
