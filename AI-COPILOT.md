@@ -62,9 +62,11 @@ All endpoints are under tenant domain:
 4. `POST /api/ai/sessions/{session_id}/messages/`
 5. `POST /api/ai/sessions/{session_id}/generate/`
 6. `GET /api/ai/sessions/{session_id}/drafts/`
-7. `POST /api/ai/sessions/{session_id}/publish/`
-8. `GET /api/ai/sessions/{session_id}/fe-guide/`
-9. `GET /api/ai/jobs/{job_id}/status/`
+7. `GET /api/ai/sessions/{session_id}/template-draft/`
+8. `GET /api/ai/sessions/{session_id}/site-content-draft/`
+9. `GET /api/ai/sessions/{session_id}/fe-guide/`
+10. `POST /api/ai/sessions/{session_id}/publish/`
+11. `GET /api/ai/jobs/{job_id}/status/`
 
 These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yasg`.
 

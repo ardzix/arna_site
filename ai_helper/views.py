@@ -55,6 +55,14 @@ class AISessionListCreateView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Create AI Copilot session',
+        operation_description=(
+            "Create a new tenant-scoped AI session.\n\n"
+            "Use `mode=template` to build reusable template structure.\n"
+            "Use `mode=site` to build site content based on existing `template_id`.\n\n"
+            "Next step:\n"
+            "1) POST `/api/ai/sessions/{session_id}/messages/` to start brainstorming.\n"
+            "2) Poll `/api/ai/jobs/{job_id}/status/` for assistant reply."
+        ),
         request_body=AICopilotSessionCreateSerializer,
         responses={201: AICopilotSessionSerializer()},
         security=[{'Bearer': []}],
@@ -86,6 +94,12 @@ class AISessionDetailView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Get AI Copilot session detail',
+        operation_description=(
+            "Fetch session metadata and message history.\n\n"
+            "Next step:\n"
+            "- Continue brainstorming via POST `/api/ai/sessions/{session_id}/messages/`\n"
+            "- Or trigger generation via POST `/api/ai/sessions/{session_id}/generate/`"
+        ),
         responses={200: AICopilotSessionSerializer()},
         security=[{'Bearer': []}],
     )
@@ -106,6 +120,14 @@ class AISessionMessageCreateView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Add message and enqueue assistant brainstorm reply',
+        operation_description=(
+            "Append one user message with optional image attachments, then enqueue async assistant reply.\n\n"
+            "Response returns `job_id` and `check_status_url`.\n\n"
+            "Next step:\n"
+            "1) GET `/api/ai/jobs/{job_id}/status/` until `done`.\n"
+            "2) Repeat messages as needed.\n"
+            "3) When discussion is enough, POST `/api/ai/sessions/{session_id}/generate/`."
+        ),
         request_body=AICopilotMessageCreateSerializer,
         responses={
             202: openapi.Schema(
@@ -178,6 +200,16 @@ class AISessionGenerateView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Generate AI drafts',
+        operation_description=(
+            "Enqueue async generation of structured drafts from session context.\n\n"
+            "Template mode result: `template_draft_id` and `fe_guide_draft_id`.\n"
+            "Site mode result: `site_content_draft_id`.\n\n"
+            "Next step:\n"
+            "1) GET `/api/ai/jobs/{job_id}/status/` until `done`.\n"
+            "2) Review drafts via GET `/api/ai/sessions/{session_id}/drafts/` "
+            "or type-specific endpoints.\n"
+            "3) Publish via POST `/api/ai/sessions/{session_id}/publish/`."
+        ),
         request_body=AIGenerateRequestSerializer,
         responses={
             202: openapi.Schema(
@@ -246,6 +278,11 @@ class AISessionDraftListView(APIView):
 
     @swagger_auto_schema(
         operation_summary='List session drafts',
+        operation_description=(
+            "Return all drafts for the session (`template`, `site_content`, `fe_guide`).\n\n"
+            "Next step:\n"
+            "- Pick correct draft IDs and call POST `/api/ai/sessions/{session_id}/publish/`."
+        ),
         responses={200: AIGenerationDraftSerializer(many=True)},
         security=[{'Bearer': []}],
     )
@@ -267,6 +304,16 @@ class AISessionPublishView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Publish AI draft(s)',
+        operation_description=(
+            "Enqueue async publish into production CMS models.\n\n"
+            "Mode contract:\n"
+            "- `mode=template`: submit `template_draft_id` (required), `fe_guide_draft_id` (optional).\n"
+            "- `mode=site`: submit `site_content_draft_id` (required), `overwrite` (optional).\n\n"
+            "Next step:\n"
+            "1) GET `/api/ai/jobs/{job_id}/status/` until `done`.\n"
+            "2) If `template` publish done, template is available in tenant templates.\n"
+            "3) If `site` publish done, content is available on public site endpoints."
+        ),
         request_body=AIPublishRequestSerializer,
         responses={
             202: openapi.Response('Publish job queued'),
@@ -332,6 +379,12 @@ class AISessionFEGuideView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Get FE guide for a session',
+        operation_description=(
+            "Get selected/latest FE guide draft for template-mode session.\n\n"
+            "Next step:\n"
+            "- Use payload/markdown as frontend implementation reference,\n"
+            "- then publish template via POST `/api/ai/sessions/{session_id}/publish/`."
+        ),
         responses={
             200: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
@@ -373,6 +426,13 @@ class AIJobStatusView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Get AI async job status',
+        operation_description=(
+            "Fetch current status of async AI operation: `asking`, `thinking`, `done`, `failed`.\n\n"
+            "When `done`, read `result_json` and continue flow based on operation:\n"
+            "- message: read `assistant_reply`.\n"
+            "- generate: read generated draft IDs.\n"
+            "- publish: read publish result."
+        ),
         responses={
             200: AIAsyncJobSerializer(),
             404: openapi.Response('Job not found'),
@@ -382,3 +442,63 @@ class AIJobStatusView(APIView):
     def get(self, request, job_id):
         job = get_object_or_404(AIAsyncJob, id=job_id)
         return Response(AIAsyncJobSerializer(job).data)
+
+
+class AISessionTemplateDraftView(APIView):
+    """Get selected/latest template draft for one session."""
+    def get_permissions(self):
+        return _read_permissions()
+
+    @swagger_auto_schema(
+        operation_summary='Get template draft for a session',
+        operation_description=(
+            "Return selected template draft (or latest) for this session.\n\n"
+            "Next step:\n"
+            "- Use `id` as `template_draft_id` in POST `/api/ai/sessions/{session_id}/publish/`."
+        ),
+        responses={200: AIGenerationDraftSerializer(), 404: openapi.Response('Template draft not found')},
+        security=[{'Bearer': []}],
+    )
+    def get(self, request, session_id):
+        session = get_object_or_404(AICopilotSession, id=session_id)
+        draft = AIGenerationDraft.objects.filter(
+            session=session,
+            draft_type=AIGenerationDraft.TYPE_TEMPLATE,
+            is_selected=True,
+        ).first() or AIGenerationDraft.objects.filter(
+            session=session,
+            draft_type=AIGenerationDraft.TYPE_TEMPLATE,
+        ).order_by('-created_at').first()
+        if not draft:
+            return Response({'error': 'Template draft not found.'}, status=404)
+        return Response(AIGenerationDraftSerializer(draft).data)
+
+
+class AISessionSiteContentDraftView(APIView):
+    """Get selected/latest site content draft for one session."""
+    def get_permissions(self):
+        return _read_permissions()
+
+    @swagger_auto_schema(
+        operation_summary='Get site content draft for a session',
+        operation_description=(
+            "Return selected site-content draft (or latest) for this session.\n\n"
+            "Next step:\n"
+            "- Use `id` as `site_content_draft_id` in POST `/api/ai/sessions/{session_id}/publish/`."
+        ),
+        responses={200: AIGenerationDraftSerializer(), 404: openapi.Response('Site content draft not found')},
+        security=[{'Bearer': []}],
+    )
+    def get(self, request, session_id):
+        session = get_object_or_404(AICopilotSession, id=session_id)
+        draft = AIGenerationDraft.objects.filter(
+            session=session,
+            draft_type=AIGenerationDraft.TYPE_SITE_CONTENT,
+            is_selected=True,
+        ).first() or AIGenerationDraft.objects.filter(
+            session=session,
+            draft_type=AIGenerationDraft.TYPE_SITE_CONTENT,
+        ).order_by('-created_at').first()
+        if not draft:
+            return Response({'error': 'Site content draft not found.'}, status=404)
+        return Response(AIGenerationDraftSerializer(draft).data)
