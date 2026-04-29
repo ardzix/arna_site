@@ -5,6 +5,7 @@ from django_tenants.utils import schema_context
 
 from ai_helper.models import AIAsyncJob, AICopilotSession
 from ai_helper.services import (
+    generate_brainstorm_reply,
     generate_drafts,
     publish_template_from_draft,
     publish_site_content_from_draft,
@@ -27,6 +28,8 @@ def run_ai_job(job_id: str, tenant_schema: str):
                 result = _run_generate(job)
             elif job.operation == AIAsyncJob.OP_PUBLISH:
                 result = _run_publish(job)
+            elif job.operation == AIAsyncJob.OP_MESSAGE:
+                result = _run_message(job)
             else:
                 raise CopilotServiceError(f'Unsupported job operation: {job.operation}')
 
@@ -48,6 +51,12 @@ def run_ai_job(job_id: str, tenant_schema: str):
 def _run_generate(job: AIAsyncJob):
     session = get_object_or_404(AICopilotSession, id=job.session_id)
     return generate_drafts(session)
+
+
+def _run_message(job: AIAsyncJob):
+    session = get_object_or_404(AICopilotSession, id=job.session_id)
+    assistant_reply = generate_brainstorm_reply(session)
+    return {'assistant_reply': assistant_reply}
 
 
 def _run_publish(job: AIAsyncJob):

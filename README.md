@@ -378,7 +378,7 @@ Highlights:
 - Draft generation and schema validation before publish
 - Publish flow into existing Template and Site models
 - FE guide draft generation (`markdown`) for frontend implementation
-- Async job execution for generate/publish with job status endpoint
+- Async job execution for message/generate/publish with job status endpoint
 
 Detailed implementation and API docs:
 - `AI-COPILOT.md`

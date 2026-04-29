@@ -163,6 +163,22 @@ Authorization: Bearer <token>
 }
 ```
 
+Response (async):
+```json
+{
+  "status": "asking",
+  "job_id": "uuid",
+  "check_status_url": "/api/ai/jobs/uuid/status/"
+}
+```
+
+When job status is `done`, `result_json` contains:
+```json
+{
+  "assistant_reply": "..."
+}
+```
+
 ### Create Session with Vision Mode
 ```http
 POST /api/ai/sessions/
@@ -226,19 +242,18 @@ If `DEEPSEEK_API_KEY` is empty:
   - no full template JSON in chat phase
   - simple Bahasa Indonesia for business users
   - structured output is generated only at `POST /generate/`
-- `generate` and `publish` are asynchronous:
+- `message`, `generate`, and `publish` are asynchronous:
   - `status=asking` when queued
   - `status=thinking` while worker runs
   - `status=done` when finished, result available in job status endpoint
   - `status=failed` when execution fails, error included in job payload
 
 ## Current Limitations
-- No async job queue yet (generation is synchronous request/response).
 - No prompt preset management model yet.
 - No token/latency analytics persistence yet.
 
 ## Recommended Next Enhancements
-1. Move generation to async workers (Celery/RQ).
+1. Add retry/backoff policy per operation (message/generate/publish).
 2. Add auto-repair pass on invalid JSON output.
 3. Add configurable prompt presets per industry.
 4. Add richer FE guide markdown templates.

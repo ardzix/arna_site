@@ -828,7 +828,21 @@ POST /api/ai/sessions/{id}/messages/
 }
 ```
 
-Response akan berisi `assistant_reply` untuk melanjutkan brainstorming.
+Response async dari endpoint utama:
+```json
+{
+  "status": "asking",
+  "job_id": "uuid",
+  "check_status_url": "/api/ai/jobs/uuid/status/"
+}
+```
+
+Polling:
+```
+GET /api/ai/jobs/{job_id}/status/
+```
+
+Jika status `done`, ambil balasan assistant dari `result_json.assistant_reply`.
 
 #### 3) Generate Draft
 

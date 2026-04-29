@@ -125,7 +125,9 @@ class AIAsyncJob(models.Model):
 
     OP_GENERATE = 'generate'
     OP_PUBLISH = 'publish'
+    OP_MESSAGE = 'message'
     OP_CHOICES = [
+        (OP_MESSAGE, 'Message Reply'),
         (OP_GENERATE, 'Generate Drafts'),
         (OP_PUBLISH, 'Publish Draft'),
     ]

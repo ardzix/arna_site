@@ -20,7 +20,6 @@ from ai_helper.serializers import (
 )
 from ai_helper.services import (
     add_user_message,
-    generate_brainstorm_reply,
 )
 
 
@@ -97,7 +96,7 @@ class AISessionDetailView(APIView):
 
 class AISessionMessageCreateView(APIView):
     """
-    Add a user message (with optional image attachments) and return assistant reply.
+    Add a user message (with optional image attachments) and enqueue assistant reply.
 
     In multimodal_vision mode, image attachments are forwarded as native image_url
     content parts to the configured vision-capable model.
@@ -106,14 +105,15 @@ class AISessionMessageCreateView(APIView):
         return _write_permissions()
 
     @swagger_auto_schema(
-        operation_summary='Add message and get assistant brainstorm reply',
+        operation_summary='Add message and enqueue assistant brainstorm reply',
         request_body=AICopilotMessageCreateSerializer,
         responses={
-            201: openapi.Schema(
+            202: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
                     'status': openapi.Schema(type=openapi.TYPE_STRING),
-                    'assistant_reply': openapi.Schema(type=openapi.TYPE_STRING),
+                    'job_id': openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
+                    'check_status_url': openapi.Schema(type=openapi.TYPE_STRING),
                 },
             ),
         },
@@ -130,13 +130,44 @@ class AISessionMessageCreateView(APIView):
             attachments=serializer.validated_data.get('attachments', []),
         )
 
-        assistant_reply = generate_brainstorm_reply(session)
+        existing = AIAsyncJob.objects.filter(
+            session=session,
+            operation=AIAsyncJob.OP_MESSAGE,
+            status__in=[AIAsyncJob.STATUS_ASKING, AIAsyncJob.STATUS_THINKING],
+        ).order_by('-created_at').first()
+        if existing:
+            return Response(
+                {
+                    'status': existing.status,
+                    'job_id': str(existing.id),
+                    'check_status_url': f'/api/ai/jobs/{existing.id}/status/',
+                },
+                status=202,
+            )
+
+        job = AIAsyncJob.objects.create(
+            session=session,
+            operation=AIAsyncJob.OP_MESSAGE,
+            status=AIAsyncJob.STATUS_ASKING,
+            input_json={'source': 'message'},
+        )
+        try:
+            q_id = async_task('ai_helper.tasks.run_ai_job', str(job.id), connection.schema_name)
+            job.q_task_id = str(q_id or '')
+            job.save(update_fields=['q_task_id'])
+        except Exception as exc:
+            job.status = AIAsyncJob.STATUS_FAILED
+            job.error = f'Failed to enqueue message job: {exc}'
+            job.save(update_fields=['status', 'error'])
+            return Response({'error': str(job.error)}, status=503)
+
         return Response(
             {
-                'status': AIAsyncJob.STATUS_DONE,
-                'result': {'assistant_reply': assistant_reply},
+                'status': AIAsyncJob.STATUS_ASKING,
+                'job_id': str(job.id),
+                'check_status_url': f'/api/ai/jobs/{job.id}/status/',
             },
-            status=201,
+            status=202,
         )
 
 
