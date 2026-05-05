@@ -29,8 +29,10 @@ class TenantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = ['id', 'name', 'slug', 'schema_name', 'sso_organization_id',
+                  'plan', 'tenancy_mode', 'shared_pool_key',
                   'is_active', 'created_on', 'domains']
         read_only_fields = ['id', 'slug', 'schema_name', 'sso_organization_id',
+                            'plan', 'tenancy_mode', 'shared_pool_key',
                             'is_active', 'created_on', 'domains']
 
 
@@ -112,6 +114,17 @@ class TenantRegistrationSerializer(serializers.Serializer):
                  help_text="URL-friendly identifier, e.g. 'toko-budi'.")
     domain = serializers.CharField(max_length=253,
                  help_text="Primary domain, e.g. 'toko-budi.arnasite.id'.")
+    plan   = serializers.ChoiceField(
+        choices=[Tenant.PLAN_FREE, Tenant.PLAN_PRO, Tenant.PLAN_ENTERPRISE],
+        required=False,
+        default=Tenant.PLAN_FREE,
+        help_text=(
+            "Requested package plan. "
+            "Default `free`. "
+            "`free` and `pro` will be provisioned on shared schema pool. "
+            "`enterprise` requires special privilege and gets dedicated schema."
+        ),
+    )
 
     def validate_slug(self, value):
         if Tenant.objects.filter(slug=value).exists():

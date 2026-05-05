@@ -9,9 +9,35 @@ class Tenant(TenantMixin):
     One row = one UMKM/business.
     sso_organization_id links this tenant to an Arna SSO organization.
     """
+    PLAN_FREE = "free"
+    PLAN_PRO = "pro"
+    PLAN_ENTERPRISE = "enterprise"
+    PLAN_CHOICES = [
+        (PLAN_FREE, "Free"),
+        (PLAN_PRO, "Pro"),
+        (PLAN_ENTERPRISE, "Enterprise"),
+    ]
+
+    TENANCY_SHARED = "shared"
+    TENANCY_DEDICATED = "dedicated"
+    TENANCY_MODE_CHOICES = [
+        (TENANCY_SHARED, "Shared"),
+        (TENANCY_DEDICATED, "Dedicated"),
+    ]
+
+    # Override TenantMixin field to allow multiple tenant rows reusing one shared schema.
+    schema_name = models.CharField(max_length=63, db_index=True)
     sso_organization_id = models.CharField(max_length=255, unique=True, db_index=True)
     name      = models.CharField(max_length=255)
     slug      = models.SlugField(unique=True)
+    plan      = models.CharField(max_length=20, choices=PLAN_CHOICES, default=PLAN_FREE, db_index=True)
+    tenancy_mode = models.CharField(
+        max_length=20,
+        choices=TENANCY_MODE_CHOICES,
+        default=TENANCY_SHARED,
+        db_index=True,
+    )
+    shared_pool_key = models.CharField(max_length=63, blank=True, default="pool_shared", db_index=True)
     is_active = models.BooleanField(default=True)
     created_on = models.DateField(auto_now_add=True)
 

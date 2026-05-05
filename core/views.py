@@ -186,6 +186,9 @@ class TenantRegisterView(APIView):
     permission_classes = [AllowAny]
     DEFAULT_OWNER_PERMISSION = "arnasite.cms.manage"
     DEFAULT_OWNER_ROLE = "site_admin"
+    ENTERPRISE_PERMISSION = "arnasite.enterprise.provision"
+    SHARED_POOL_SCHEMA = "pool_shared"
+    SHARED_POOL_KEY = "pool_shared"
 
     def _sso_headers(self, request):
         return {
@@ -429,16 +432,44 @@ class TenantRegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        requested_plan = data.get("plan", Tenant.PLAN_FREE)
+        user_permissions = claims.get("permissions", []) or []
+        is_enterprise_allowed = bool(claims.get("is_owner")) and (self.ENTERPRISE_PERMISSION in user_permissions)
+
+        if requested_plan == Tenant.PLAN_ENTERPRISE and not is_enterprise_allowed:
+            return Response(
+                {
+                    "error": (
+                        "Enterprise provisioning requires additional privilege. "
+                        f"Missing permission: `{self.ENTERPRISE_PERMISSION}`."
+                    )
+                },
+                status=403,
+            )
+
         slug        = data["slug"]
         schema_name = slug.replace("-", "_")
+        tenancy_mode = Tenant.TENANCY_DEDICATED if requested_plan == Tenant.PLAN_ENTERPRISE else Tenant.TENANCY_SHARED
+        shared_pool_key = self.SHARED_POOL_KEY if tenancy_mode == Tenant.TENANCY_SHARED else ""
+        if tenancy_mode == Tenant.TENANCY_SHARED:
+            schema_name = self.SHARED_POOL_SCHEMA
 
         try:
-            tenant = Tenant.objects.create(
+            tenant = Tenant(
                 schema_name=schema_name,
                 name=data["name"],
                 slug=slug,
                 sso_organization_id=org_id,
+                plan=requested_plan,
+                tenancy_mode=tenancy_mode,
+                shared_pool_key=shared_pool_key,
             )
+            # Shared tenants reuse one pool schema. Create schema only once.
+            if tenancy_mode == Tenant.TENANCY_SHARED and Tenant.objects.filter(schema_name=schema_name).exists():
+                tenant.auto_create_schema = False
+            else:
+                tenant.auto_create_schema = True
+            tenant.save()
         except Exception as e:
             return Response({"error": f"Failed to create tenant: {str(e)}"}, status=400)
 
@@ -460,6 +491,9 @@ class TenantRegisterView(APIView):
                 "slug": tenant.slug,
                 "schema_name": tenant.schema_name,
                 "domain": data["domain"],
+                "plan": tenant.plan,
+                "tenancy_mode": tenant.tenancy_mode,
+                "shared_pool_key": tenant.shared_pool_key,
             },
             "sso_sync": sso_sync,
             "next_steps": [
