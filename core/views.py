@@ -469,6 +469,57 @@ class TenantRegisterView(APIView):
         }, status=201)
 
 
+class TenantMyListView(APIView):
+    """
+    List tenant(s) for currently logged-in user org context (JWT org_id).
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary='List tenant(s) for logged-in user',
+        operation_description=(
+            "Return tenant records linked to current JWT `org_id`.\n\n"
+            "Useful on root/public domain (`site.arnatech.id`) to discover tenant domain(s).\n\n"
+            "Next step:\n"
+            "- Use returned primary domain to access tenant API, e.g. "
+            "`https://{tenant_domain}/swagger/`."
+        ),
+        responses={
+            200: openapi.Response(
+                description='Tenant list for current JWT org context.',
+                examples={
+                    'application/json': {
+                        'count': 1,
+                        'results': [
+                            {
+                                'id': 'uuid',
+                                'name': 'Nusa Prima',
+                                'slug': 'nusa-prima',
+                                'schema_name': 'nusa_prima',
+                                'sso_organization_id': 'uuid',
+                                'is_active': True,
+                                'created_on': '2026-01-01T00:00:00Z',
+                                'domains': [
+                                    {'id': 1, 'domain': 'nusaprima.site.arnatech.id', 'is_primary': True}
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+            401: openapi.Response(description='Missing/invalid/expired JWT token.'),
+        },
+        security=[{'Bearer': []}],
+    )
+    def get(self, request):
+        org_id = str(getattr(request.user, 'org_id', '') or '')
+        tenants = Tenant.objects.filter(
+            sso_organization_id=org_id
+        ).prefetch_related('domains').order_by('-created_on')
+        payload = TenantSerializer(tenants, many=True).data
+        return Response({'count': len(payload), 'results': payload}, status=200)
+
+
 # ─── Tenant Self-Management (dari dalam tenant schema) ────────────────────────
 
 _tenant_detail_responses = {
