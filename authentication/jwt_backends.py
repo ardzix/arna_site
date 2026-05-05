@@ -88,14 +88,13 @@ class ArnaJWTAuthentication(BaseAuthentication):
         org_id = claims.get("org_id")
 
         # Resolve tenant from organization ID.
-        # Return None (anonymous) instead of raising when tenant doesn't exist yet —
-        # e.g. during POST /tenants/register/ the tenant hasn't been created yet.
-        # Views that require a tenant (IsTenantMember etc.) will reject the request anyway.
+        # If tenant is not found, keep user authenticated and let permission layer
+        # return 403 (clear permission-denied semantics) instead of 401 anonymous.
         from core.models import Tenant
         try:
             tenant = Tenant.objects.get(sso_organization_id=org_id)
         except Tenant.DoesNotExist:
-            return None
+            tenant = None
         except Exception as e:
             logger.error("DB error looking up tenant for org_id=%s: %s", org_id, e)
             raise AuthenticationFailed(f"Server error during authentication. Contact support. ({type(e).__name__})")
@@ -104,8 +103,8 @@ class ArnaJWTAuthentication(BaseAuthentication):
             user_id=user_id,
             email=claims.get("email", ""),
             org_id=org_id,
-            tenant_schema=tenant.schema_name,
-            tenant_name=tenant.name,
+            tenant_schema=(tenant.schema_name if tenant else ""),
+            tenant_name=(tenant.name if tenant else ""),
             roles=claims.get("roles", []),
             permissions=claims.get("permissions", []),
             is_owner=claims.get("is_owner", False)

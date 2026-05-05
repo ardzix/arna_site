@@ -110,7 +110,10 @@ class ArnaJWTAuthenticationTest(TestCase):
         self.mock_tenant_get.side_effect = Tenant.DoesNotExist
         token = make_jwt(self.private_pem, self.user_id, self.org_id)
         req = self.make_mock_request(auth_header=f"Bearer {token}")
-        self.assertIsNone(self.auth.authenticate(req))
+        result = self.auth.authenticate(req)
+        self.assertIsNotNone(result)
+        user, _ = result
+        self.assertEqual(user.tenant_schema, "")
 
     def test_valid_token_returns_ssouser(self):
         token = make_jwt(self.private_pem, self.user_id, self.org_id)
@@ -313,4 +316,3 @@ class PermissionTest(TestCase):
         req = MagicMock()
         req.user = object() # No tenant_schema
         self.assertFalse(perm.has_permission(req, MagicMock()))
-

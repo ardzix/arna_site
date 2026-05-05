@@ -8,6 +8,8 @@ class IsTenantMember(BasePermission):
 
     Uses user.tenant_schema (a primitive string) — not the ORM instance.
     """
+    message = "Permission denied for this tenant."
+
     def has_permission(self, request, view):
         user = request.user
         if not hasattr(user, "tenant_schema"):
