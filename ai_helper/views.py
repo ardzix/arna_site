@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+import uuid
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,6 +26,19 @@ from ai_helper.services import (
 
 
 READ_METHODS = {'GET'}
+
+
+def _json_safe(value):
+    """Convert serializer validated data into JSONField-safe primitives."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
 
 
 def _read_permissions():
@@ -311,7 +325,7 @@ class AISessionGenerateView(APIView):
             session=session,
             operation=AIAsyncJob.OP_GENERATE,
             status=AIAsyncJob.STATUS_ASKING,
-            input_json=req.validated_data,
+            input_json=_json_safe(req.validated_data),
         )
         try:
             q_id = async_task('ai_helper.tasks.run_ai_job', str(job.id), connection.schema_name)
@@ -412,7 +426,7 @@ class AISessionPublishView(APIView):
             session=session,
             operation=AIAsyncJob.OP_PUBLISH,
             status=AIAsyncJob.STATUS_ASKING,
-            input_json=req.validated_data,
+            input_json=_json_safe(req.validated_data),
         )
         try:
             q_id = async_task('ai_helper.tasks.run_ai_job', str(job.id), connection.schema_name)
