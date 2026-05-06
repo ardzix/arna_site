@@ -138,3 +138,11 @@ class TenantRegistrationSerializer(serializers.Serializer):
         if Domain.objects.filter(domain=value).exists():
             raise serializers.ValidationError("Domain ini sudah terdaftar.")
         return value
+
+
+class PremiumCheckoutSerializer(serializers.Serializer):
+    payer_email = serializers.EmailField(required=False, allow_blank=False)
+    description = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    success_redirect_url = serializers.URLField(required=False)
+    failure_redirect_url = serializers.URLField(required=False)
+    customer = serializers.JSONField(required=False)

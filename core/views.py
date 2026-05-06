@@ -4,6 +4,7 @@ import requests as http
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.core.cache import cache
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -22,8 +23,15 @@ from core.serializers import (
     TenantSerializer,
     TenantUpdateSerializer,
     DomainSerializer,
+    PremiumCheckoutSerializer,
 )
 from core.services import apply_template
+from core.commerce import (
+    CommerceClient,
+    CommerceClientError,
+    resolve_catalog_ids,
+    bootstrap_free_plan_for_org,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +197,12 @@ class TenantRegisterView(APIView):
     ENTERPRISE_PERMISSION = "arnasite.enterprise.provision"
     SHARED_POOL_SCHEMA = "pool_shared"
     SHARED_POOL_KEY = "pool_shared"
+
+    def _bearer_token(self, request):
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if not auth_header.startswith("Bearer "):
+            return ""
+        return auth_header.split(" ", 1)[1]
 
     def _sso_headers(self, request):
         return {
@@ -483,6 +497,23 @@ class TenantRegisterView(APIView):
             tenant.delete()
             return Response({"error": f"Failed to register domain: {str(e)}"}, status=400)
 
+        commerce_bootstrap = {"ok": True, "skipped": True}
+        if getattr(settings, "ARNA_COMMERCE_BOOTSTRAP_FREE_ON_REGISTER", True):
+            try:
+                commerce_bootstrap = {
+                    "ok": True,
+                    "result": bootstrap_free_plan_for_org(
+                        organization_id=str(org_id),
+                        bearer_token=self._bearer_token(request),
+                    ),
+                }
+            except Exception as exc:
+                logger.warning("Commerce free bootstrap failed for org_id=%s: %s", org_id, exc)
+                commerce_bootstrap = {
+                    "ok": False,
+                    "error": f"Tenant created, but free package bootstrap failed: {exc}",
+                }
+
         sso_sync = self._provision_sso_iam(request, claims)
 
         return Response({
@@ -496,6 +527,7 @@ class TenantRegisterView(APIView):
                 "shared_pool_key": tenant.shared_pool_key,
             },
             "sso_sync": sso_sync,
+            "commerce_bootstrap": commerce_bootstrap,
             "next_steps": [
                 f"Access your site at: {data['domain']}/swagger/",
                 "Apply a template: POST /api/tenants/current/apply-template/",
@@ -607,6 +639,138 @@ class TenantDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(TenantSerializer(tenant).data)
+
+
+def _extract_bearer(request):
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not auth_header.startswith("Bearer "):
+        return ""
+    return auth_header.split(" ", 1)[1]
+
+
+class TenantEntitlementRuntimeView(APIView):
+    """
+    Get runtime entitlement summary for current tenant organization from Arna Commerce.
+    """
+    def get_permissions(self):
+        return [IsAuthenticated(), IsTenantMember()]
+
+    @swagger_auto_schema(
+        operation_summary='Get runtime entitlements (Commerce)',
+        operation_description=(
+            "Fetch runtime entitlement map from Arna Commerce for current organization.\n\n"
+            "Next step:\n"
+            "- Use returned `entitlements` map to enforce runtime limits in FE/BE flows."
+        ),
+        responses={
+            200: openapi.Response(
+                description='Runtime entitlement summary',
+                examples={
+                    'application/json': {
+                        'organization_id': 'uuid',
+                        'product_code': 'arna-site',
+                        'entitlements': {
+                            'arnasite.max_websites': '3',
+                            'arnasite.max_templates': '20',
+                        },
+                    }
+                },
+            ),
+            502: openapi.Response(description='Commerce request failed.'),
+        },
+        security=[{'Bearer': []}],
+    )
+    def get(self, request):
+        org_id = str(getattr(request.user, "org_id", "") or "")
+        token = _extract_bearer(request)
+        product_code = getattr(settings, "ARNA_COMMERCE_PRODUCT_CODE", "arna-site")
+        key_prefix = getattr(settings, "ARNA_COMMERCE_ENTITLEMENT_KEY_PREFIX", "arnasite.")
+
+        cache_key = f"commerce:runtime-entitlements:{org_id}:{product_code}:{key_prefix}"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached, status=200)
+
+        try:
+            payload = CommerceClient(token).runtime_entitlements(
+                organization_id=org_id,
+                product_code=product_code,
+                key_prefix=key_prefix,
+            )
+        except CommerceClientError as exc:
+            return Response({"error": str(exc)}, status=502)
+
+        ttl = int(getattr(settings, "ARNA_COMMERCE_ENTITLEMENT_CACHE_TTL", 300))
+        cache.set(cache_key, payload, timeout=ttl)
+        return Response(payload, status=200)
+
+
+class TenantPremiumCheckoutView(APIView):
+    """
+    Create premium checkout payment URL via Arna Commerce.
+    """
+    def get_permissions(self):
+        return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
+
+    @swagger_auto_schema(
+        operation_summary='Create premium checkout session',
+        operation_description=(
+            "Create order -> submit -> create payment (Xendit URL) for premium monthly plan.\n\n"
+            "Next step:\n"
+            "- Redirect user to returned payment URL from Commerce response."
+        ),
+        request_body=PremiumCheckoutSerializer,
+        responses={
+            200: openapi.Response(
+                description='Premium checkout session created',
+                examples={
+                    'application/json': {
+                        'order_id': 'uuid',
+                        'submit': {'order': {'status': 'pending_payment'}},
+                        'payment': {'invoice_url': 'https://checkout.xendit.co/...'},
+                    }
+                },
+            ),
+            502: openapi.Response(description='Commerce request failed.'),
+        },
+        security=[{'Bearer': []}],
+    )
+    def post(self, request):
+        serializer = PremiumCheckoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        token = _extract_bearer(request)
+        org_id = str(getattr(request.user, "org_id", "") or "")
+        product_code = getattr(settings, "ARNA_COMMERCE_PRODUCT_CODE", "arna-site")
+        premium_plan_code = getattr(settings, "ARNA_COMMERCE_PREMIUM_PLAN_CODE", "arna-site-premium-monthly")
+        payment_method = getattr(settings, "ARNA_COMMERCE_PREMIUM_PAYMENT_METHOD", "pg")
+
+        client = CommerceClient(token)
+        try:
+            ids = resolve_catalog_ids(client, product_code, premium_plan_code)
+            order = client.create_order(
+                {
+                    "organization_id": org_id,
+                    "product": ids["product_id"],
+                    "plan": ids["plan_id"],
+                    "price": ids["price_id"],
+                    "payment_method": payment_method,
+                    "notes": "ArnaSite premium checkout",
+                }
+            )
+            submit = client.submit_order(order["id"])
+            payment = client.create_order_payment(order["id"], serializer.validated_data)
+        except CommerceClientError as exc:
+            return Response({"error": str(exc)}, status=502)
+
+        return Response(
+            {
+                "order_id": order["id"],
+                "submit": submit,
+                "payment": payment,
+            },
+            status=200,
+        )
 
 
 # ─── Domain Management ────────────────────────────────────────────────────────
