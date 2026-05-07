@@ -133,29 +133,30 @@ docker network create --driver overlay ${NETWORK_NAME} 2>/dev/null || true
 docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 if docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
-    echo "[INFO] Service exists — performing rolling update..."
-    docker service update \\
-        --image ${DOCKER_IMAGE}:${DOCKER_TAG} \\
-        --with-registry-auth \\
-        --update-delay 10s \\
-        --update-order start-first \\
-        --update-failure-action rollback \\
-        ${STACK_NAME}
-else
-    echo "[INFO] Creating new service..."
-    docker service create \\
-        --name ${STACK_NAME} \\
-        --replicas ${REPLICAS} \\
-        --network ${NETWORK_NAME} \\
-        --env-file /root/${STACK_NAME}/.env \\
-        --with-registry-auth \\
-        --update-delay 10s \\
-        --update-order start-first \\
-        --update-failure-action rollback \\
-        --restart-condition on-failure \\
-        --restart-max-attempts 3 \\
-        ${DOCKER_IMAGE}:${DOCKER_TAG}
+    echo "[INFO] Service exists — recreating service to force env refresh from /root/${STACK_NAME}/.env ..."
+    docker service rm ${STACK_NAME}
+    # Wait until service is fully removed before re-create
+    for i in $(seq 1 30); do
+        if ! docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
+            break
+        fi
+        sleep 1
+    done
 fi
+
+echo "[INFO] Creating service with latest image + env-file..."
+docker service create \\
+    --name ${STACK_NAME} \\
+    --replicas ${REPLICAS} \\
+    --network ${NETWORK_NAME} \\
+    --env-file /root/${STACK_NAME}/.env \\
+    --with-registry-auth \\
+    --update-delay 10s \\
+    --update-order start-first \\
+    --update-failure-action rollback \\
+    --restart-condition on-failure \\
+    --restart-max-attempts 3 \\
+    ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 echo "[INFO] Deploy success."
 EOF
