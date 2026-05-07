@@ -7,6 +7,91 @@ This guide helps ArnaSite frontend developers integrate package selection and pu
 - upgrade to Premium,
 - get entitlement-based features applied immediately.
 
+## End-to-End User Journey (Start to Publish)
+
+This is the recommended FE journey from a brand-new user until website publish.
+
+### 0) Public Landing (Unauthenticated)
+
+1. User opens landing page.
+2. User clicks `Start Free` or `Upgrade to Premium`.
+3. FE redirects user to login/register flow (SSO).
+
+### 1) Login/Register and Organization Context
+
+1. User completes login/register.
+2. FE receives access token.
+3. FE calls root endpoint:
+   - `GET https://site.arnatech.id/tenants/`
+4. Branch:
+   - If tenant exists: open tenant domain app directly.
+   - If tenant does not exist: continue to onboarding create-tenant flow.
+
+### 2) New Tenant Onboarding (First-time Org)
+
+1. FE shows create-tenant form (`name`, `slug`, `domain`, optional `plan`).
+2. FE submits:
+   - `POST https://site.arnatech.id/tenants/register/`
+3. Backend creates tenant and attempts free bootstrap in Commerce.
+4. FE reads response:
+   - `tenant.domain` -> navigate to `https://{tenant.domain}`
+   - `commerce_bootstrap` -> show warning banner if bootstrap failed (but tenant created).
+
+### 3) Tenant App Boot
+
+After entering tenant domain:
+1. FE calls:
+   - `GET /api/tenant/`
+   - `GET /api/tenant/entitlements/runtime/`
+2. FE builds current package state from entitlement map.
+3. FE gates features by runtime entitlement keys.
+
+### 4) Package Selection / Upgrade Decision
+
+#### Free path
+- Stay on free entitlements and continue content/template workflow.
+
+#### Premium path
+1. User clicks Upgrade.
+2. FE calls:
+   - `POST /api/tenant/checkout/premium/`
+3. FE gets checkout payload/URL from response and redirects user.
+4. After payment redirect-back:
+   - show `Processing payment...`
+   - poll `GET /api/tenant/entitlements/runtime/` until premium values appear.
+
+### 5) Build Website (AI or Manual)
+
+#### AI-assisted path
+1. Create AI session:
+   - `POST /api/ai/sessions/`
+2. Brainstorm:
+   - `POST /api/ai/sessions/{id}/messages/`
+   - poll `/api/ai/jobs/{job_id}/status/` until `done`
+3. Generate drafts:
+   - `POST /api/ai/sessions/{id}/generate/`
+   - poll job status until `done`
+4. Review drafts:
+   - `GET /api/ai/sessions/{id}/template-draft/` or
+   - `GET /api/ai/sessions/{id}/site-content-draft/` or
+   - `GET /api/ai/sessions/{id}/fe-guide/`
+5. Publish:
+   - `POST /api/ai/sessions/{id}/publish/`
+   - poll job status until `done`
+
+#### Manual path
+- Use existing page/template/content APIs as current CMS flow.
+
+### 6) Final Publish and Verification
+
+1. Verify published content via tenant/public endpoints.
+2. Open live website URL and run quick QA:
+   - page render
+   - section order
+   - CTA links
+   - responsive behavior
+3. FE keeps entitlement checks active for future create/generate actions.
+
 ## What FE Should and Should Not Do
 
 - FE should:
