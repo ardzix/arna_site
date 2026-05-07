@@ -136,7 +136,7 @@ if docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
     echo "[INFO] Service exists — recreating service to force env refresh from /root/${STACK_NAME}/.env ..."
     docker service rm ${STACK_NAME}
     # Wait until service is fully removed before re-create
-    for i in $(seq 1 30); do
+    for i in \$(seq 1 30); do
         if ! docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
             break
         fi
