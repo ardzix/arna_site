@@ -9,6 +9,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.core.exceptions import ValidationError
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
 from sites.models import Page, Section, ContentBlock, ListItem
@@ -81,7 +82,10 @@ def _do_reorder(model, data):
     with transaction.atomic():
         for item in data:
             if item.get("id") and item.get("order") is not None:
-                model.objects.filter(id=item["id"]).update(order=item["order"])
+                try:
+                    model.objects.filter(id=item["id"]).update(order=item["order"])
+                except (ValidationError, ValueError):
+                    return Response({"error": "Invalid id format"}, status=400)
     return Response({"status": "reordered"})
 
 
@@ -91,7 +95,10 @@ def _do_scoped_reorder(queryset, data):
     with transaction.atomic():
         for item in data:
             if item.get("id") and item.get("order") is not None:
-                queryset.filter(id=item["id"]).update(order=item["order"])
+                try:
+                    queryset.filter(id=item["id"]).update(order=item["order"])
+                except (ValidationError, ValueError):
+                    return Response({"error": "Invalid id format"}, status=400)
     return Response({"status": "reordered"})
 
 

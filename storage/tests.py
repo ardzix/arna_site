@@ -1,27 +1,12 @@
-from django.test import TestCase
-from django_tenants.test.client import TenantClient
+from django.test import TestCase, Client, override_settings
 from unittest.mock import patch
 import uuid
 from core.models import Tenant, Domain
+from authentication.test_helpers import generate_rsa_keypair, make_jwt
+from authentication.jwt_backends import ArnaJWTAuthentication
 
 
-def _make_auth_mock(org_id_str):
-    class MockMe:
-        def json(self): return {"id": str(uuid.uuid4()), "email": "user@arna.com"}
-        def raise_for_status(self): pass
-
-    class MockOrg:
-        def json(self): return {"id": org_id_str}
-        def raise_for_status(self): pass
-
-    def side_effect(url, *args, **kwargs):
-        if "auth/me" in url: return MockMe()
-        elif "organizations/current" in url: return MockOrg()
-        raise Exception(f"Unmocked URL: {url}")
-
-    return side_effect
-
-
+@override_settings(ALLOWED_HOSTS=['*'])
 class StorageProxyTest(TestCase):
     def setUp(self):
         from django.db import connection
@@ -32,14 +17,27 @@ class StorageProxyTest(TestCase):
             schema_name='tenant_storage_test', name='Storage',
             slug='st', sso_organization_id=self.org_id
         )
-        Domain.objects.create(domain='storage.localhost', tenant=self.tenant, is_primary=True)
+        self.domain = 'storage.localhost'
+        Domain.objects.create(domain=self.domain, tenant=self.tenant, is_primary=True)
+        self.private_pem, self.public_pem = generate_rsa_keypair()
+        self.patcher = patch.object(
+            ArnaJWTAuthentication,
+            '_public_key_override',
+            new=self.public_pem.decode(),
+            create=True,
+        )
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+
+    def _auth(self):
+        token = make_jwt(self.private_pem, uuid.uuid4(), self.org_id, roles=["site_admin"])
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
     @patch('storage.views.http.post')
-    @patch('authentication.backends.http.get')
-    def test_storage_init_upload(self, mock_auth_get, mock_storage_post):
+    def test_storage_init_upload(self, mock_storage_post):
         """init-upload proxies to File Manager, saves a pending reference, returns 201."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         storage_file_id = str(uuid.uuid4())
 
         class MockStorageResp:
@@ -58,11 +56,11 @@ class StorageProxyTest(TestCase):
 
         mock_storage_post.return_value = MockStorageResp()
 
-        client = TenantClient(self.tenant)
+        client = Client(HTTP_HOST=self.domain)
         response = client.post(
-            "/api/storage/files/init-upload/",
+            "/api/files/init-upload/",
             {"filename": "logo.png", "mime_type": "image/png", "size_bytes": 1024},
-            HTTP_AUTHORIZATION="Bearer unique_storage_token",
+            **self._auth(),
             content_type="application/json",
         )
 
@@ -81,11 +79,8 @@ class StorageProxyTest(TestCase):
         self.assertEqual(ref.status, "upload_pending")
 
     @patch('storage.views.http.post')
-    @patch('authentication.backends.http.get')
-    def test_complete_upload_marks_active(self, mock_auth_get, mock_storage_post):
+    def test_complete_upload_marks_active(self, mock_storage_post):
         """complete action calls File Manager and sets reference status to 'active'."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         storage_file_id = str(uuid.uuid4())
 
         class MockInitResp:
@@ -106,12 +101,12 @@ class StorageProxyTest(TestCase):
         # First call = init, second call = complete
         mock_storage_post.side_effect = [MockInitResp(), MockCompleteResp()]
 
-        client = TenantClient(self.tenant)
-        auth = {"HTTP_AUTHORIZATION": "Bearer storage_token"}
+        client = Client(HTTP_HOST=self.domain)
+        auth = self._auth()
 
         # Init upload
         init_resp = client.post(
-            "/api/storage/files/init-upload/",
+            "/api/files/init-upload/",
             {"filename": "logo.png", "mime_type": "image/png", "size_bytes": 512},
             content_type="application/json", **auth
         )
@@ -120,7 +115,7 @@ class StorageProxyTest(TestCase):
 
         # Complete upload (step 4)
         complete_resp = client.post(
-            f"/api/storage/files/{ref_id}/complete/",
+            f"/api/files/{ref_id}/complete/",
             {"parts": [{"part_number": 1, "etag": '"abc123"'}]},
             content_type="application/json", **auth
         )
@@ -128,29 +123,23 @@ class StorageProxyTest(TestCase):
         self.assertEqual(complete_resp.json()["status"], "active")
 
     @patch('storage.views.http.post')
-    @patch('authentication.backends.http.get')
-    def test_file_manager_502_handled(self, mock_auth_get, mock_storage_post):
+    def test_file_manager_502_handled(self, mock_storage_post):
         """When File Manager is down, init-upload should return 502 gracefully."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         import requests
         mock_storage_post.side_effect = requests.RequestException("File Manager down")
 
-        client = TenantClient(self.tenant)
+        client = Client(HTTP_HOST=self.domain)
         response = client.post(
-            "/api/storage/files/init-upload/",
+            "/api/files/init-upload/",
             {"filename": "logo.png", "mime_type": "image/png", "size_bytes": 1024},
-            HTTP_AUTHORIZATION="Bearer token",
+            **self._auth(),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 502)
 
     @patch('storage.views.http.post')
-    @patch('authentication.backends.http.get')
-    def test_storage_presign_proxies_to_file_manager(self, mock_auth_get, mock_storage_post):
+    def test_storage_presign_proxies_to_file_manager(self, mock_storage_post):
         """presign endpoint calls File Manager and returns presigned URLs."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         storage_file_id = str(uuid.uuid4())
 
         class MockPresignResp:
@@ -172,22 +161,19 @@ class StorageProxyTest(TestCase):
             display_name="x", mime_type="x", size_bytes=10, status="upload_pending"
         )
 
-        client = TenantClient(self.tenant)
+        client = Client(HTTP_HOST=self.domain)
         response = client.post(
-            f"/api/storage/files/{ref.id}/presign/",
+            f"/api/files/{ref.id}/presign/",
             {"parts": [1]},
-            HTTP_AUTHORIZATION="Bearer token",
+            **self._auth(),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["parts"][0]["url"], "https://s3.local/part1")
 
     @patch('storage.views.http.post')
-    @patch('authentication.backends.http.get')
-    def test_storage_abort_sets_aborted_status(self, mock_auth_get, mock_storage_post):
+    def test_storage_abort_sets_aborted_status(self, mock_storage_post):
         """abort endpoint calls File Manager and sets reference to aborted."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         class MockAbortResp:
             status_code = 200
             def raise_for_status(self): pass
@@ -204,11 +190,11 @@ class StorageProxyTest(TestCase):
             display_name="x", mime_type="x", size_bytes=10, status="upload_pending"
         )
 
-        client = TenantClient(self.tenant)
+        client = Client(HTTP_HOST=self.domain)
         response = client.post(
-            f"/api/storage/files/{ref.id}/abort/",
+            f"/api/files/{ref.id}/abort/",
             {},
-            HTTP_AUTHORIZATION="Bearer token",
+            **self._auth(),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
@@ -218,11 +204,8 @@ class StorageProxyTest(TestCase):
         self.assertEqual(ref.status, "aborted")
 
     @patch('storage.views.http.delete')
-    @patch('authentication.backends.http.get')
-    def test_storage_destroy_calls_file_manager_delete(self, mock_auth_get, mock_storage_delete):
+    def test_storage_destroy_calls_file_manager_delete(self, mock_storage_delete):
         """Deleting a MediaReference calls the File Manager DELETE API."""
-        mock_auth_get.side_effect = _make_auth_mock(str(self.org_id))
-
         class MockDeleteResp:
             status_code = 204
             def raise_for_status(self): pass
@@ -239,10 +222,10 @@ class StorageProxyTest(TestCase):
             display_name="x", mime_type="x", size_bytes=10, status="active"
         )
 
-        client = TenantClient(self.tenant)
+        client = Client(HTTP_HOST=self.domain)
         response = client.delete(
-            f"/api/storage/files/{ref.id}/",
-            HTTP_AUTHORIZATION="Bearer token"
+            f"/api/files/{ref.id}/",
+            **self._auth(),
         )
         self.assertEqual(response.status_code, 204)
 

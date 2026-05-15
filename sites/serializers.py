@@ -8,6 +8,7 @@ class ListItemSerializer(serializers.ModelSerializer):
         fields = ["id", "block", "title", "description", "icon", "order",
                   "template_list_item_id"]
         read_only_fields = ["id", "template_list_item_id"]
+        extra_kwargs = {"block": {"required": False}}
 
 
 class ContentBlockSerializer(serializers.ModelSerializer):
@@ -18,6 +19,7 @@ class ContentBlockSerializer(serializers.ModelSerializer):
         fields = ["id", "section", "title", "subtitle", "description",
                   "image_url", "extra", "order", "template_block_id", "items"]
         read_only_fields = ["id", "template_block_id"]
+        extra_kwargs = {"section": {"required": False}}
 
 
 class SectionSerializer(serializers.ModelSerializer):
@@ -28,6 +30,7 @@ class SectionSerializer(serializers.ModelSerializer):
         fields = ["id", "page", "type", "order", "is_active",
                   "template_section_id", "blocks"]
         read_only_fields = ["id", "template_section_id"]
+        extra_kwargs = {"page": {"required": False}}
 
 
 class PageSerializer(serializers.ModelSerializer):
