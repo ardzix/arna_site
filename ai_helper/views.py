@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 import uuid
+from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -135,7 +136,11 @@ class AISessionListCreateView(APIView):
         operation_description=(
             "Create a new tenant-scoped AI session.\n\n"
             "Use `mode=template` to build reusable template structure.\n"
-            "Use `mode=site` to build site content based on existing `template_id`.\n\n"
+            "Use `mode=site` to build site content based on existing template reference.\n"
+            "For `mode=site`, submit one of:\n"
+            "- `template_id` (published template UUID), or\n"
+            "- `template_draft_id` (AI template draft UUID fallback).\n"
+            "If both are provided, backend uses `template_id` and stores draft input for traceability.\n\n"
             "Next step:\n"
             "1) POST `/api/ai/sessions/{session_id}/messages/` to start brainstorming.\n"
             "2) Poll `/api/ai/jobs/{job_id}/status/` for assistant reply."
@@ -158,6 +163,7 @@ class AISessionListCreateView(APIView):
             llm_model=serializer.validated_data.get('llm_model', ''),
             title=serializer.validated_data.get('title', ''),
             selected_template_id=serializer.validated_data.get('selected_template_id'),
+            metadata=serializer.validated_data.get('metadata', {}),
             created_by_user_id=str(getattr(user, 'id', '')),
             created_by_email=getattr(user, 'email', ''),
         )
@@ -200,19 +206,47 @@ class AITemplateOptionListView(APIView):
             "Next step:\n"
             "- Use one returned id when creating `mode=site` session via POST `/api/ai/sessions/`."
         ),
+        manual_parameters=[
+            openapi.Parameter('limit', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description='Items per source list (default 20, max 100).'),
+            openapi.Parameter('offset', openapi.IN_QUERY, type=openapi.TYPE_INTEGER, description='Offset per source list (default 0).'),
+            openapi.Parameter('search', openapi.IN_QUERY, type=openapi.TYPE_STRING, description='Optional keyword filter for name/slug/title.'),
+            openapi.Parameter('selected_only', openapi.IN_QUERY, type=openapi.TYPE_BOOLEAN, description='If true, template_drafts only include selected drafts.'),
+        ],
         responses={
             200: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
                     'published_templates': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
                     'template_drafts': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                    'limit': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'offset': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'has_more_published': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                    'has_more_drafts': openapi.Schema(type=openapi.TYPE_BOOLEAN),
                 },
             )
         },
         security=[{'Bearer': []}],
     )
     def get(self, request):
-        published = Template.objects.filter(is_active=True, is_published=True).order_by('name')[:200]
+        try:
+            limit = int(request.query_params.get('limit', 20))
+        except (TypeError, ValueError):
+            limit = 20
+        try:
+            offset = int(request.query_params.get('offset', 0))
+        except (TypeError, ValueError):
+            offset = 0
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        search = (request.query_params.get('search') or '').strip()
+        selected_only = str(request.query_params.get('selected_only', 'false')).lower() in {'1', 'true', 'yes'}
+
+        published_qs = Template.objects.filter(is_active=True, is_published=True)
+        if search:
+            published_qs = published_qs.filter(Q(name__icontains=search) | Q(slug__icontains=search))
+        published_qs = published_qs.order_by('name')
+        published_total = published_qs.count()
+        published = published_qs[offset:offset + limit]
         published_rows = [
             {
                 'template_id': str(t.id),
@@ -223,9 +257,16 @@ class AITemplateOptionListView(APIView):
             for t in published
         ]
 
-        drafts = AIGenerationDraft.objects.filter(
+        drafts_qs = AIGenerationDraft.objects.filter(
             draft_type=AIGenerationDraft.TYPE_TEMPLATE
-        ).select_related('session').order_by('-created_at')[:200]
+        ).select_related('session')
+        if selected_only:
+            drafts_qs = drafts_qs.filter(is_selected=True)
+        if search:
+            drafts_qs = drafts_qs.filter(session__title__icontains=search)
+        drafts_qs = drafts_qs.order_by('-created_at')
+        drafts_total = drafts_qs.count()
+        drafts = drafts_qs[offset:offset + limit]
         draft_rows = [
             {
                 'template_draft_id': str(d.id),
@@ -241,6 +282,10 @@ class AITemplateOptionListView(APIView):
             {
                 'published_templates': published_rows,
                 'template_drafts': draft_rows,
+                'limit': limit,
+                'offset': offset,
+                'has_more_published': (offset + limit) < published_total,
+                'has_more_drafts': (offset + limit) < drafts_total,
             }
         )
 

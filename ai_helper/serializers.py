@@ -61,9 +61,23 @@ class AICopilotSessionCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"template_id": "For site mode, submit `template_id` or `template_draft_id`."}
             )
-        # Normalize: if template_id is missing but template_draft_id exists, use it as selected_template_id.
-        if mode == AICopilotSession.MODE_SITE and not template_id and template_draft_id:
-            attrs['selected_template_id'] = template_draft_id
+        # Precedence rule for site mode:
+        # 1) If template_id exists, use it.
+        # 2) Else if template_draft_id exists, use it as selected_template_id fallback.
+        if mode == AICopilotSession.MODE_SITE:
+            if template_id and template_draft_id:
+                attrs['metadata'] = {
+                    **attrs.get('metadata', {}),
+                    'template_source': 'template_id',
+                    'template_draft_id_input': str(template_draft_id),
+                }
+            elif not template_id and template_draft_id:
+                attrs['selected_template_id'] = template_draft_id
+                attrs['metadata'] = {
+                    **attrs.get('metadata', {}),
+                    'template_source': 'template_draft_id',
+                    'template_draft_id_input': str(template_draft_id),
+                }
         return attrs
 
 

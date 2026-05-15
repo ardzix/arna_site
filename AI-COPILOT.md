@@ -83,6 +83,11 @@ These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yas
   - `next_offset` (null when end reached)
   - `total`
 
+`GET /api/ai/template-options/` supports:
+- `limit`, `offset` pagination
+- `search` filter
+- `selected_only=true` to return selected template drafts only
+
 ## Permissions
 - Read operations: `IsAuthenticated + IsTenantMember`
 - Write/generate/publish: `IsAuthenticated + IsTenantMember + (IsTenantAdmin or IsTenantOwner)`
