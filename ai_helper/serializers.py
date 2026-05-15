@@ -38,10 +38,33 @@ class AICopilotSessionCreateSerializer(serializers.ModelSerializer):
             "Use null for `template` mode."
         ),
     )
+    template_draft_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "Alternative input for `site` mode. "
+            "Use draft UUID from AI template draft when final template UUID is not available yet."
+        ),
+    )
 
     class Meta:
         model = AICopilotSession
-        fields = ['mode', 'llm_mode', 'llm_model', 'title', 'template_id']
+        fields = ['mode', 'llm_mode', 'llm_model', 'title', 'template_id', 'template_draft_id']
+
+    def validate(self, attrs):
+        mode = attrs.get('mode')
+        template_id = attrs.get('selected_template_id')
+        template_draft_id = attrs.get('template_draft_id')
+        if mode == AICopilotSession.MODE_SITE and not template_id and not template_draft_id:
+            raise serializers.ValidationError(
+                {"template_id": "For site mode, submit `template_id` or `template_draft_id`."}
+            )
+        # Normalize: if template_id is missing but template_draft_id exists, use it as selected_template_id.
+        if mode == AICopilotSession.MODE_SITE and not template_id and template_draft_id:
+            attrs['selected_template_id'] = template_draft_id
+        return attrs
 
 
 class AICopilotAttachmentSerializer(serializers.ModelSerializer):

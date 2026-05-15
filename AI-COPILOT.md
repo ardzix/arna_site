@@ -57,16 +57,17 @@ All endpoints are under tenant domain:
 `/api/ai/`
 
 1. `POST /api/ai/sessions/`
-2. `GET /api/ai/sessions/`
-3. `GET /api/ai/sessions/{session_id}/`
-4. `POST /api/ai/sessions/{session_id}/messages/`
-5. `POST /api/ai/sessions/{session_id}/generate/`
-6. `GET /api/ai/sessions/{session_id}/drafts/`
-7. `GET /api/ai/sessions/{session_id}/template-draft/`
-8. `GET /api/ai/sessions/{session_id}/site-content-draft/`
-9. `GET /api/ai/sessions/{session_id}/fe-guide/`
-10. `POST /api/ai/sessions/{session_id}/publish/`
-11. `GET /api/ai/jobs/{job_id}/status/`
+2. `GET /api/ai/template-options/`
+3. `GET /api/ai/sessions/`
+4. `GET /api/ai/sessions/{session_id}/`
+5. `POST /api/ai/sessions/{session_id}/messages/`
+6. `POST /api/ai/sessions/{session_id}/generate/`
+7. `GET /api/ai/sessions/{session_id}/drafts/`
+8. `GET /api/ai/sessions/{session_id}/template-draft/`
+9. `GET /api/ai/sessions/{session_id}/site-content-draft/`
+10. `GET /api/ai/sessions/{session_id}/fe-guide/`
+11. `POST /api/ai/sessions/{session_id}/publish/`
+12. `GET /api/ai/jobs/{job_id}/status/`
 
 These endpoints are also documented in tenant Swagger (`/swagger/`) via `drf-yasg`.
 

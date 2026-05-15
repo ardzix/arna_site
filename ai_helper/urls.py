@@ -1,5 +1,6 @@
 from django.urls import path
 from ai_helper.views import (
+    AITemplateOptionListView,
     AISessionListCreateView,
     AISessionDetailView,
     AISessionMessageCreateView,
@@ -13,6 +14,7 @@ from ai_helper.views import (
 )
 
 urlpatterns = [
+    path('template-options/', AITemplateOptionListView.as_view(), name='ai-template-options'),
     path('sessions/', AISessionListCreateView.as_view(), name='ai-session-list-create'),
     path('sessions/<uuid:session_id>/', AISessionDetailView.as_view(), name='ai-session-detail'),
     path('sessions/<uuid:session_id>/messages/', AISessionMessageCreateView.as_view(), name='ai-session-message-create'),

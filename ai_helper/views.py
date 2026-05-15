@@ -10,6 +10,7 @@ from django_q.tasks import async_task
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
 from ai_helper.models import AICopilotSession, AIGenerationDraft, AIAsyncJob
+from core.models import Template
 from ai_helper.serializers import (
     AICopilotSessionCreateSerializer,
     AICopilotSessionSerializer,
@@ -182,6 +183,66 @@ class AISessionDetailView(APIView):
     def get(self, request, session_id):
         session = get_object_or_404(AICopilotSession, id=session_id)
         return Response(AICopilotSessionSerializer(session).data)
+
+
+class AITemplateOptionListView(APIView):
+    """List available template identifiers for site-mode session creation."""
+    def get_permissions(self):
+        return _read_permissions()
+
+    @swagger_auto_schema(
+        operation_summary='List available template options for site mode',
+        operation_description=(
+            "Return available template identifiers without requiring a session_id.\n\n"
+            "Includes:\n"
+            "- published templates (`template_id`)\n"
+            "- AI template drafts (`template_draft_id`)\n\n"
+            "Next step:\n"
+            "- Use one returned id when creating `mode=site` session via POST `/api/ai/sessions/`."
+        ),
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'published_templates': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                    'template_drafts': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT)),
+                },
+            )
+        },
+        security=[{'Bearer': []}],
+    )
+    def get(self, request):
+        published = Template.objects.filter(is_active=True, is_published=True).order_by('name')[:200]
+        published_rows = [
+            {
+                'template_id': str(t.id),
+                'name': t.name,
+                'slug': t.slug,
+                'category': t.category,
+            }
+            for t in published
+        ]
+
+        drafts = AIGenerationDraft.objects.filter(
+            draft_type=AIGenerationDraft.TYPE_TEMPLATE
+        ).select_related('session').order_by('-created_at')[:200]
+        draft_rows = [
+            {
+                'template_draft_id': str(d.id),
+                'session_id': str(d.session_id),
+                'session_title': d.session.title,
+                'created_at': d.created_at,
+                'draft_name': (d.payload_json or {}).get('name', ''),
+                'draft_slug': (d.payload_json or {}).get('slug', ''),
+            }
+            for d in drafts
+        ]
+        return Response(
+            {
+                'published_templates': published_rows,
+                'template_drafts': draft_rows,
+            }
+        )
 
 
 class AISessionMessageCreateView(APIView):
