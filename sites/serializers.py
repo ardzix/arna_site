@@ -35,20 +35,23 @@ class SectionSerializer(serializers.ModelSerializer):
 
 class PageSerializer(serializers.ModelSerializer):
     """Serializer ringkas untuk list/create/update page."""
+    template_id = serializers.UUIDField(source="source_template_id", read_only=True)
+
     class Meta:
         model = Page
         fields = ["id", "title", "slug", "is_home", "is_active", "order",
-                  "meta_title", "meta_description", "created_at", "updated_at"]
+                  "meta_title", "meta_description", "template_id", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class PageDetailSerializer(serializers.ModelSerializer):
     """Serializer lengkap untuk detail page — sections + blocks + items di-embed."""
     sections = SectionSerializer(many=True, read_only=True)
+    template_id = serializers.UUIDField(source="source_template_id", read_only=True)
 
     class Meta:
         model = Page
         fields = ["id", "title", "slug", "is_home", "is_active", "order",
-                  "meta_title", "meta_description", "created_at", "updated_at",
+                  "meta_title", "meta_description", "template_id", "created_at", "updated_at",
                   "sections"]
         read_only_fields = ["id", "created_at", "updated_at"]

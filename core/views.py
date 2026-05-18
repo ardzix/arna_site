@@ -110,6 +110,8 @@ class ApplyTemplateView(APIView):
 
     Proses ini akan meng-clone seluruh struktur template (sections → blocks → list items)
     ke dalam schema PostgreSQL tenant. Semua konten dilakukan dalam satu transaksi atomik.
+    Sistem menyimpan `source_template_id` pada setiap page hasil clone agar public API
+    bisa mengembalikan root `template_id` secara langsung.
 
     Jika tenant sudah memiliki konten, request akan ditolak dengan 409 kecuali
     `overwrite: true` dikirimkan — dalam hal itu seluruh konten lama akan dihapus.

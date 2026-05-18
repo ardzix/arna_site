@@ -17,6 +17,11 @@ class Page(models.Model):
     order        = models.PositiveIntegerField(default=0)
     meta_title       = models.CharField(max_length=255, blank=True)
     meta_description = models.TextField(blank=True)
+    source_template_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Root template UUID used to generate this page.",
+    )
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 

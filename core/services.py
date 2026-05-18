@@ -50,6 +50,7 @@ def apply_template(tenant_schema: str, template_id: str, overwrite: bool = False
                     is_home=t_page.is_home,
                     order=t_page.order,
                     is_active=True,
+                    source_template_id=template.id,
                 )
                 _clone_sections(t_page.sections.all(), page=page)
         else:
