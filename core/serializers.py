@@ -10,8 +10,15 @@ from core.models import (
 class DomainSerializer(serializers.ModelSerializer):
     class Meta:
         model = Domain
-        fields = ['id', 'domain', 'is_primary']
-        read_only_fields = ['id', 'is_primary']
+        fields = [
+            'id', 'domain', 'is_primary', 'is_primary_frontend',
+            'role', 'status', 'target_backend_domain',
+            'verification_method', 'verification_token', 'verified_at',
+        ]
+        read_only_fields = [
+            'id', 'is_primary', 'target_backend_domain',
+            'verification_method', 'verification_token', 'verified_at',
+        ]
 
     def validate_domain(self, value):
         instance = self.instance
@@ -20,6 +27,16 @@ class DomainSerializer(serializers.ModelSerializer):
             qs = qs.exclude(pk=instance.pk)
         if qs.exists():
             raise serializers.ValidationError("Domain ini sudah terdaftar.")
+        return value
+
+    def validate_role(self, value):
+        allowed = {
+            Domain.ROLE_FRONTEND_CUSTOM,
+            Domain.ROLE_FRONTEND_DEFAULT,
+            Domain.ROLE_BACKEND_PRIMARY,
+        }
+        if value not in allowed:
+            raise serializers.ValidationError("Role domain tidak valid.")
         return value
 
 

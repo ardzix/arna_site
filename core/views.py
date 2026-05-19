@@ -1,10 +1,13 @@
 import jwt
+import uuid
 import logging
 import requests as http
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.core.cache import cache
+from django.utils import timezone
+from django_tenants.utils import schema_context
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -490,11 +493,29 @@ class TenantRegisterView(APIView):
             return Response({"error": f"Failed to create tenant: {str(e)}"}, status=400)
 
         try:
-            Domain.objects.create(
+            backend_domain = Domain.objects.create(
                 domain=data["domain"],
                 tenant=tenant,
                 is_primary=True,
+                role=Domain.ROLE_BACKEND_PRIMARY,
+                status=Domain.STATUS_ACTIVE,
+                is_primary_frontend=False,
+                target_backend_domain=data["domain"],
+                verified_at=timezone.now(),
             )
+            frontend_suffix = str(getattr(settings, "FRONTEND_DEFAULT_DOMAIN_SUFFIX", "bisnisnaikkelas.com")).strip(".")
+            frontend_default = f"{slug}.{frontend_suffix}" if frontend_suffix else ""
+            if frontend_default:
+                Domain.objects.create(
+                    domain=frontend_default,
+                    tenant=tenant,
+                    is_primary=False,
+                    role=Domain.ROLE_FRONTEND_DEFAULT,
+                    status=Domain.STATUS_ACTIVE,
+                    is_primary_frontend=True,
+                    target_backend_domain=backend_domain.domain,
+                    verified_at=timezone.now(),
+                )
         except Exception as e:
             tenant.delete()
             return Response({"error": f"Failed to register domain: {str(e)}"}, status=400)
@@ -524,6 +545,7 @@ class TenantRegisterView(APIView):
                 "slug": tenant.slug,
                 "schema_name": tenant.schema_name,
                 "domain": data["domain"],
+                "frontend_default_domain": f"{slug}.{str(getattr(settings, 'FRONTEND_DEFAULT_DOMAIN_SUFFIX', 'bisnisnaikkelas.com')).strip('.')}",
                 "plan": tenant.plan,
                 "tenancy_mode": tenant.tenancy_mode,
                 "shared_pool_key": tenant.shared_pool_key,
@@ -781,8 +803,9 @@ _domain_list_response = openapi.Response(
     'Daftar domain tenant.',
     examples={
         'application/json': [
-            {'id': 1, 'domain': 'yapu.arnatech.id', 'is_primary': True},
-            {'id': 2, 'domain': 'yapu.localhost',   'is_primary': False},
+            {'id': 1, 'domain': 'yapu.site.arnatech.id', 'is_primary': True, 'role': 'backend_primary', 'status': 'active'},
+            {'id': 2, 'domain': 'yapu.bisnisnaikkelas.com', 'is_primary': False, 'is_primary_frontend': True, 'role': 'frontend_default', 'status': 'active'},
+            {'id': 3, 'domain': 'yapu.com', 'is_primary': False, 'is_primary_frontend': False, 'role': 'frontend_custom', 'status': 'pending_verification'},
         ]
     },
 )
@@ -794,6 +817,14 @@ _domain_add_body = openapi.Schema(
         'domain': openapi.Schema(
             type=openapi.TYPE_STRING,
             description='Domain atau subdomain baru, misal: `custom.domain.com`.',
+        ),
+        'role': openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description='Optional. `frontend_custom` (default).',
+        ),
+        'is_primary_frontend': openapi.Schema(
+            type=openapi.TYPE_BOOLEAN,
+            description='Optional. Tandai sebagai domain frontend utama.',
         ),
     },
 )
@@ -847,9 +878,25 @@ class DomainListCreateView(APIView):
     )
     def post(self, request):
         tenant = self._get_tenant()
-        serializer = DomainSerializer(data=request.data)
+        payload = dict(request.data)
+        payload.setdefault("role", Domain.ROLE_FRONTEND_CUSTOM)
+        payload.setdefault("status", Domain.STATUS_PENDING)
+        payload.setdefault("is_primary_frontend", False)
+        serializer = DomainSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
-        domain = serializer.save(tenant=tenant, is_primary=False)
+        backend_primary = Domain.objects.filter(
+            tenant=tenant,
+            role=Domain.ROLE_BACKEND_PRIMARY,
+        ).first()
+        verification_token = uuid.uuid4().hex
+        verification_method = "txt"
+        domain = serializer.save(
+            tenant=tenant,
+            is_primary=False,
+            target_backend_domain=(backend_primary.domain if backend_primary else ""),
+            verification_token=verification_token,
+            verification_method=verification_method,
+        )
         return Response(DomainSerializer(domain).data, status=201)
 
 
@@ -882,8 +929,110 @@ class DomainDetailView(APIView):
                 {"error": "Domain primary tidak bisa dihapus. Tambah domain baru terlebih dahulu, lalu hubungi support untuk memindahkan primary."},
                 status=400,
             )
+        if domain.role == Domain.ROLE_FRONTEND_DEFAULT:
+            return Response(
+                {"error": "Frontend default domain tidak bisa dihapus."},
+                status=400,
+            )
         domain.delete()
         return Response(status=204)
+
+    @swagger_auto_schema(
+        operation_summary='Update domain flags (frontend primary)',
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'is_primary_frontend': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                'status': openapi.Schema(type=openapi.TYPE_STRING),
+            },
+        ),
+        responses={200: openapi.Response('Domain updated.', schema=DomainSerializer())},
+        security=[{'Bearer': []}],
+    )
+    def patch(self, request, pk):
+        domain = self._get_domain(pk)
+        if "is_primary_frontend" in request.data:
+            make_primary = bool(request.data.get("is_primary_frontend"))
+            if make_primary:
+                Domain.objects.filter(
+                    tenant=domain.tenant,
+                    is_primary_frontend=True,
+                ).update(is_primary_frontend=False)
+                domain.is_primary_frontend = True
+        if "status" in request.data and request.data.get("status") in {
+            Domain.STATUS_ACTIVE,
+            Domain.STATUS_PENDING,
+            Domain.STATUS_FAILED,
+        }:
+            domain.status = request.data["status"]
+            if domain.status == Domain.STATUS_ACTIVE:
+                domain.verified_at = timezone.now()
+        domain.save()
+        return Response(DomainSerializer(domain).data, status=200)
+
+
+class PublicDomainResolveView(APIView):
+    """
+    Resolve frontend/public host ke tenant + backend domain target.
+
+    FE dapat memanggil endpoint ini untuk tahu request host tertentu harus
+    consume public content dari backend domain tenant mana.
+    """
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_summary='Resolve frontend host to backend domain mapping',
+        manual_parameters=[
+            openapi.Parameter(
+                'host', openapi.IN_QUERY, description='Frontend/public host, e.g. bnk.bisnisnaikkelas.com',
+                type=openapi.TYPE_STRING, required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                'Resolved.',
+                examples={
+                    'application/json': {
+                        'host': 'bnk.bisnisnaikkelas.com',
+                        'tenant': {'name': 'BNK', 'slug': 'bnk'},
+                        'backend_domain': 'bnk.site.arnatech.id',
+                        'public_api_base_url': 'https://bnk.site.arnatech.id/api/public',
+                    }
+                },
+            ),
+            404: openapi.Response('Domain not found.'),
+        },
+        security=[],
+    )
+    def get(self, request):
+        host = (request.query_params.get("host") or "").strip().lower()
+        if not host:
+            return Response({"error": "host query param is required."}, status=400)
+
+        with schema_context("public"):
+            domain = Domain.objects.select_related("tenant").filter(domain=host).first()
+            if not domain:
+                return Response({"error": "Domain not found."}, status=404)
+
+            backend = (
+                domain.target_backend_domain
+                or Domain.objects.filter(
+                    tenant=domain.tenant,
+                    role=Domain.ROLE_BACKEND_PRIMARY,
+                ).values_list("domain", flat=True).first()
+                or ""
+            )
+            scheme = "https"
+            api_base = f"{scheme}://{backend}/api/public" if backend else ""
+            return Response(
+                {
+                    "host": host,
+                    "tenant": {"name": domain.tenant.name, "slug": domain.tenant.slug},
+                    "backend_domain": backend,
+                    "public_api_base_url": api_base,
+                },
+                status=200,
+            )
 
 
 # ─── Tenant Template Management ───────────────────────────────────────────────

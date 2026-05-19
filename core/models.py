@@ -52,6 +52,42 @@ class Tenant(TenantMixin):
 
 class Domain(DomainMixin):
     """Subdomain or custom domain -> Tenant mapping."""
+    ROLE_BACKEND_PRIMARY = "backend_primary"
+    ROLE_FRONTEND_DEFAULT = "frontend_default"
+    ROLE_FRONTEND_CUSTOM = "frontend_custom"
+    ROLE_CHOICES = [
+        (ROLE_BACKEND_PRIMARY, "Backend Primary"),
+        (ROLE_FRONTEND_DEFAULT, "Frontend Default"),
+        (ROLE_FRONTEND_CUSTOM, "Frontend Custom"),
+    ]
+
+    STATUS_ACTIVE = "active"
+    STATUS_PENDING = "pending_verification"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_PENDING, "Pending Verification"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    role = models.CharField(
+        max_length=32,
+        choices=ROLE_CHOICES,
+        default=ROLE_FRONTEND_CUSTOM,
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_ACTIVE,
+        db_index=True,
+    )
+    is_primary_frontend = models.BooleanField(default=False, db_index=True)
+    target_backend_domain = models.CharField(max_length=253, blank=True, default="")
+    verification_method = models.CharField(max_length=32, blank=True, default="")
+    verification_token = models.CharField(max_length=255, blank=True, default="")
+    verified_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         app_label = "core"
 

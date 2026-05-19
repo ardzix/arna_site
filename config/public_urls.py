@@ -13,7 +13,8 @@ schema_view = get_schema_view(
             "- `POST /tenants/register/` — Daftarkan tenant baru. "
             "Butuh Bearer JWT dari Arna SSO dengan `is_owner=true`.\n"
             "- `GET /tenants/` — List tenant untuk org/user login (butuh Bearer JWT).\n"
-            "- `GET /templates/` — Lihat daftar template (tanpa auth)."
+            "- `GET /templates/` — Lihat daftar template (tanpa auth).\n"
+            "- `GET /domains/resolve/?host=...` — Resolve host FE ke backend domain tenant."
         ),
     ),
     public=True,
@@ -26,6 +27,7 @@ urlpatterns = [
     path("tenants/register/", include("core.register_urls")),
     path("tenants/", include("core.public_tenant_urls")),
     path("templates/", include("core.urls")),
+    path("domains/", include("core.public_domain_urls")),
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-public-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-public-swagger-ui'),
 ]

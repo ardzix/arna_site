@@ -29,6 +29,69 @@ def _write_perms():
     return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 
+_public_site_list_response = openapi.Response(
+    description=(
+        "Daftar halaman aktif untuk tenant publik saat ini. "
+        "`template_id` merepresentasikan root template yang dipakai page. "
+        "Jika `template_id` bernilai null, halaman tersebut bukan hasil apply template root "
+        "(misalnya page dibuat manual atau data lama sebelum mapping root tersedia)."
+    ),
+    examples={
+        "application/json": {
+            "tenant": {"name": "BNK", "slug": "bnk"},
+            "pages": [
+                {
+                    "id": "a2d6c88e-2f7b-43c7-8f5f-cf54ec2ef89f",
+                    "title": "Home",
+                    "slug": "home",
+                    "is_home": True,
+                    "is_active": True,
+                    "order": 1,
+                    "meta_title": "",
+                    "meta_description": "",
+                    "template_id": "517e9e9c-1fe8-407e-afcd-7a3edb28c34f",
+                    "created_at": "2026-05-18T10:00:00Z",
+                    "updated_at": "2026-05-18T10:00:00Z",
+                }
+            ],
+        }
+    },
+)
+
+_public_site_detail_response = openapi.Response(
+    description=(
+        "Detail satu halaman publik lengkap dengan sections -> blocks -> items. "
+        "`template_id` adalah root template halaman ini; bisa null untuk halaman non-template/manual."
+    ),
+    examples={
+        "application/json": {
+            "id": "a2d6c88e-2f7b-43c7-8f5f-cf54ec2ef89f",
+            "title": "Home",
+            "slug": "home",
+            "is_home": True,
+            "is_active": True,
+            "order": 1,
+            "meta_title": "",
+            "meta_description": "",
+            "template_id": "517e9e9c-1fe8-407e-afcd-7a3edb28c34f",
+            "created_at": "2026-05-18T10:00:00Z",
+            "updated_at": "2026-05-18T10:00:00Z",
+            "sections": [
+                {
+                    "id": "f7e62f03-a01d-4f6b-8f95-ee02a53f5ec2",
+                    "page": "a2d6c88e-2f7b-43c7-8f5f-cf54ec2ef89f",
+                    "type": "hero",
+                    "order": 1,
+                    "is_active": True,
+                    "template_section_id": "8f0ea7b0-3fd0-4f8e-92f6-4186c9cbb8cd",
+                    "blocks": [],
+                }
+            ],
+        }
+    },
+)
+
+
 # ─── Public ───────────────────────────────────────────────────────────────────
 
 class PublicSiteView(APIView):
@@ -43,6 +106,28 @@ class PublicSiteView(APIView):
     """
     permission_classes = [AllowAny]
 
+    @swagger_auto_schema(
+        operation_summary="Public site payload (list/detail)",
+        operation_description=(
+            "GET tanpa slug mengembalikan list halaman aktif tenant. "
+            "GET dengan slug mengembalikan detail halaman.\n\n"
+            "Catatan `template_id`:\n"
+            "- UUID: halaman berasal dari root template tersebut.\n"
+            "- null: halaman manual/non-template atau data lama sebelum root mapping."
+        ),
+        responses={
+            200: openapi.Response(
+                description="Success",
+                examples={
+                    "application/json": {
+                        "list_mode": _public_site_list_response.examples["application/json"],
+                        "detail_mode": _public_site_detail_response.examples["application/json"],
+                    }
+                },
+            )
+        },
+        security=[],
+    )
     def get(self, request, slug=None):
         from django.db import connection
         tenant = connection.tenant

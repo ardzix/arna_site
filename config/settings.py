@@ -153,6 +153,10 @@ SSO_JWT_PUBLIC_KEY_PATH = str(
 SSO_JWT_ALGORITHM = 'RS256'
 SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', '')
 
+# Frontend tenant domain suffix for auto-generated public domain
+# Example: tenant slug "bnk" -> "bnk.bisnisnaikkelas.com"
+FRONTEND_DEFAULT_DOMAIN_SUFFIX = os.getenv('FRONTEND_DEFAULT_DOMAIN_SUFFIX', 'bisnisnaikkelas.com')
+
 # CORS
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CORS_ALLOW_ALL_ORIGINS = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
