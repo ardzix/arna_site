@@ -156,6 +156,9 @@ SSO_JWT_AUDIENCE = os.getenv('SSO_JWT_AUDIENCE', '')
 # Frontend tenant domain suffix for auto-generated public domain
 # Example: tenant slug "bnk" -> "bnk.bisnisnaikkelas.com"
 FRONTEND_DEFAULT_DOMAIN_SUFFIX = os.getenv('FRONTEND_DEFAULT_DOMAIN_SUFFIX', 'bisnisnaikkelas.com')
+# Backend tenant domain suffix for auto-generated API domain
+# Example: tenant slug "bnk" -> "bnk.site.arnatech.id"
+BACKEND_DEFAULT_DOMAIN_SUFFIX = os.getenv('BACKEND_DEFAULT_DOMAIN_SUFFIX', 'site.arnatech.id')
 
 # CORS
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')

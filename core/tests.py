@@ -250,7 +250,7 @@ class TenantRegistrationAudienceTest(TestCase):
         with override_settings(SSO_JWT_PUBLIC_KEY_PATH=self.key_file.name, SSO_JWT_AUDIENCE='arnasite'):
             response = self.client.post(
                 "/tenants/register/",
-                {"name": "Tenant Baru", "slug": "tenant-baru", "domain": "tenant-baru.localhost"},
+                {"name": "Tenant Baru", "slug": "tenant-baru"},
                 HTTP_AUTHORIZATION=f"Bearer {token}",
                 content_type="application/json",
             )

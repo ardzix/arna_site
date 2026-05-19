@@ -11,7 +11,8 @@ schema_view = get_schema_view(
         description=(
             "Public endpoints ArnaSite.\n\n"
             "- `POST /tenants/register/` — Daftarkan tenant baru. "
-            "Butuh Bearer JWT dari Arna SSO dengan `is_owner=true`.\n"
+            "Butuh Bearer JWT dari Arna SSO dengan `is_owner=true`. "
+            "Backend/frontend domain akan digenerate otomatis dari slug.\n"
             "- `GET /tenants/` — List tenant untuk org/user login (butuh Bearer JWT).\n"
             "- `GET /templates/` — Lihat daftar template (tanpa auth).\n"
             "- `GET /domains/resolve/?host=...` — Resolve host FE ke backend domain tenant."

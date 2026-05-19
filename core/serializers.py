@@ -129,8 +129,6 @@ class TenantRegistrationSerializer(serializers.Serializer):
                  help_text="Display name of the organization.")
     slug   = serializers.SlugField(max_length=100,
                  help_text="URL-friendly identifier, e.g. 'toko-budi'.")
-    domain = serializers.CharField(max_length=253,
-                 help_text="Primary domain, e.g. 'toko-budi.arnasite.id'.")
     plan   = serializers.ChoiceField(
         choices=[Tenant.PLAN_FREE, Tenant.PLAN_PRO, Tenant.PLAN_ENTERPRISE],
         required=False,
@@ -149,11 +147,6 @@ class TenantRegistrationSerializer(serializers.Serializer):
         schema_name = value.replace("-", "_")
         if Tenant.objects.filter(schema_name=schema_name).exists():
             raise serializers.ValidationError("Schema yang dihasilkan dari slug ini sudah ada.")
-        return value
-
-    def validate_domain(self, value):
-        if Domain.objects.filter(domain=value).exists():
-            raise serializers.ValidationError("Domain ini sudah terdaftar.")
         return value
 
 
