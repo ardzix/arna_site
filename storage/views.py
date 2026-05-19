@@ -85,6 +85,31 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
     def _get_fm_headers(self, request):
         return {"Authorization": request.META.get("HTTP_AUTHORIZATION", "")}
 
+    def _proxy_to_fm(self, request, method, path, payload=None):
+        headers = self._get_fm_headers(request)
+        storage_base = settings.ARNA_STORAGE_BASE_URL
+        url = f"{storage_base}{path}"
+        try:
+            if method == "GET":
+                resp = http.get(url, headers=headers, timeout=15)
+            elif method == "DELETE":
+                resp = http.delete(url, headers=headers, timeout=15)
+            else:
+                resp = http.post(url, json=(payload or {}), headers=headers, timeout=15)
+        except http.RequestException as e:
+            return None, Response(
+                {"error": f"Failed to reach Arna File Manager: {str(e)}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if resp.status_code == 204:
+            return resp, Response(status=204)
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"raw": (resp.text or "")[:500]}
+        return resp, Response(body, status=resp.status_code)
+
     @swagger_auto_schema(
         operation_summary='Inisiasi upload file baru',
         operation_description=(
@@ -209,6 +234,31 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
         return Response(resp.json(), status=200)
 
     @swagger_auto_schema(
+        operation_summary="Direct FM passthrough: presign by file_id",
+        operation_description=(
+            "Passthrough langsung ke Arna File Manager endpoint "
+            "`POST /api/files/{file_id}/parts/presign`.\n\n"
+            "Gunakan ini jika FE ingin pakai `file_id` langsung dari FM tanpa "
+            "bergantung pada `reference_id` lokal."
+        ),
+        request_body=StoragePresignRequestSerializer,
+        responses={200: _presign_response, 400: "Upstream error", 502: "Upstream unavailable"},
+        security=[{'Bearer': []}],
+    )
+    @action(detail=False, methods=['post'], url_path=r'fm/(?P<file_id>[0-9a-fA-F-]+)/presign',
+            serializer_class=StoragePresignRequestSerializer)
+    def fm_presign(self, request, file_id=None):
+        serializer = StoragePresignRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        _, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/parts/presign",
+            payload=serializer.validated_data,
+        )
+        return response
+
+    @swagger_auto_schema(
         operation_summary='Selesaikan multipart upload',
         operation_description=(
             'Memberi tahu Arna File Manager bahwa semua part telah berhasil diupload ke S3. '
@@ -254,6 +304,29 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
         return Response(MediaReferenceSerializer(reference).data)
 
     @swagger_auto_schema(
+        operation_summary="Direct FM passthrough: complete by file_id",
+        operation_description=(
+            "Passthrough langsung ke Arna File Manager endpoint "
+            "`POST /api/files/{file_id}/complete`."
+        ),
+        request_body=StorageCompleteRequestSerializer,
+        responses={200: "Completed", 400: "Upstream error", 502: "Upstream unavailable"},
+        security=[{'Bearer': []}],
+    )
+    @action(detail=False, methods=['post'], url_path=r'fm/(?P<file_id>[0-9a-fA-F-]+)/complete',
+            serializer_class=StorageCompleteRequestSerializer)
+    def fm_complete(self, request, file_id=None):
+        serializer = StorageCompleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        _, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/complete",
+            payload=serializer.validated_data,
+        )
+        return response
+
+    @swagger_auto_schema(
         operation_summary='Batalkan multipart upload',
         operation_description=(
             'Membatalkan multipart upload yang sedang berjalan dan membersihkan resource S3. '
@@ -290,6 +363,43 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
         reference.status = "aborted"
         reference.save()
         return Response({"status": "aborted"})
+
+    @swagger_auto_schema(
+        operation_summary="Direct FM passthrough: abort by file_id",
+        operation_description=(
+            "Passthrough langsung ke Arna File Manager endpoint "
+            "`POST /api/files/{file_id}/abort`."
+        ),
+        responses={200: "Aborted", 400: "Upstream error", 502: "Upstream unavailable"},
+        security=[{'Bearer': []}],
+    )
+    @action(detail=False, methods=['post'], url_path=r'fm/(?P<file_id>[0-9a-fA-F-]+)/abort')
+    def fm_abort(self, request, file_id=None):
+        _, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/abort",
+            payload={},
+        )
+        return response
+
+    @swagger_auto_schema(
+        operation_summary="Direct FM passthrough: metadata by file_id",
+        operation_description=(
+            "Passthrough langsung ke Arna File Manager endpoint "
+            "`GET /api/files/{file_id}`."
+        ),
+        responses={200: "File metadata", 400: "Upstream error", 502: "Upstream unavailable"},
+        security=[{'Bearer': []}],
+    )
+    @action(detail=False, methods=['get'], url_path=r'fm/(?P<file_id>[0-9a-fA-F-]+)')
+    def fm_read(self, request, file_id=None):
+        _, response = self._proxy_to_fm(
+            request,
+            method="GET",
+            path=f"/api/files/{file_id}",
+        )
+        return response
 
     def perform_destroy(self, instance):
         """Hapus file dari Arna File Manager sebelum menghapus record lokal."""

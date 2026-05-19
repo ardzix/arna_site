@@ -172,6 +172,55 @@ class StorageProxyTest(TestCase):
         self.assertEqual(response.json()["parts"][0]["url"], "https://s3.local/part1")
 
     @patch('storage.views.http.post')
+    def test_storage_fm_presign_passthrough_by_file_id(self, mock_storage_post):
+        """fm presign endpoint proxies directly to File Manager using file_id path param."""
+        storage_file_id = str(uuid.uuid4())
+
+        class MockPresignResp:
+            status_code = 200
+            def json(self): return {
+                "file_id": storage_file_id,
+                "parts": [{"part_number": 1, "url": "https://s3.local/part1"}]
+            }
+            def raise_for_status(self): pass
+
+        mock_storage_post.return_value = MockPresignResp()
+
+        client = Client(HTTP_HOST=self.domain)
+        response = client.post(
+            f"/api/files/fm/{storage_file_id}/presign/",
+            {"parts": [1, 2]},
+            **self._auth(),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["file_id"], storage_file_id)
+        self.assertEqual(response.json()["parts"][0]["part_number"], 1)
+
+    @patch('storage.views.http.get')
+    def test_storage_fm_read_passthrough_by_file_id(self, mock_storage_get):
+        """fm read endpoint proxies metadata read directly to File Manager."""
+        storage_file_id = str(uuid.uuid4())
+
+        class MockReadResp:
+            status_code = 200
+            def json(self): return {
+                "id": storage_file_id,
+                "url": f"https://storage.arnatech.id/{storage_file_id}",
+                "status": "active",
+            }
+
+        mock_storage_get.return_value = MockReadResp()
+
+        client = Client(HTTP_HOST=self.domain)
+        response = client.get(
+            f"/api/files/fm/{storage_file_id}/",
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], storage_file_id)
+
+    @patch('storage.views.http.post')
     def test_storage_abort_sets_aborted_status(self, mock_storage_post):
         """abort endpoint calls File Manager and sets reference to aborted."""
         class MockAbortResp:
