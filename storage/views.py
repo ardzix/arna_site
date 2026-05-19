@@ -110,6 +110,17 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
             body = {"raw": (resp.text or "")[:500]}
         return resp, Response(body, status=resp.status_code)
 
+    def _resolve_file_id(self, identifier):
+        """
+        Resolve identifier from old API path.
+        - If identifier matches local MediaReference.id, use its file_id.
+        - Otherwise treat identifier directly as File Manager file_id.
+        """
+        ref = MediaReference.objects.filter(id=identifier).first()
+        if ref:
+            return ref.file_id, ref
+        return str(identifier), None
+
     @swagger_auto_schema(
         operation_summary='Inisiasi upload file baru',
         operation_description=(
@@ -210,28 +221,16 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='presign',
             serializer_class=StoragePresignRequestSerializer)
     def presign(self, request, pk=None):
-        reference = self.get_object()
         serializer = StoragePresignRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        headers      = self._get_fm_headers(request)
-        storage_base = settings.ARNA_STORAGE_BASE_URL
-
-        try:
-            resp = http.post(
-                f"{storage_base}/api/files/{reference.file_id}/parts/presign",
-                json=serializer.validated_data,
-                headers=headers,
-                timeout=10,
-            )
-            resp.raise_for_status()
-        except http.RequestException:
-            return Response(
-                {"error": "Failed to get presigned URLs from FM"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(resp.json(), status=200)
+        file_id, _ = self._resolve_file_id(pk)
+        _, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/parts/presign",
+            payload=serializer.validated_data,
+        )
+        return response
 
     @swagger_auto_schema(
         operation_summary="Direct FM passthrough: presign by file_id",
@@ -278,30 +277,19 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='complete',
             serializer_class=StorageCompleteRequestSerializer)
     def complete_upload(self, request, pk=None):
-        reference = self.get_object()
         serializer = StorageCompleteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        headers      = self._get_fm_headers(request)
-        storage_base = settings.ARNA_STORAGE_BASE_URL
-
-        try:
-            resp = http.post(
-                f"{storage_base}/api/files/{reference.file_id}/complete",
-                json=serializer.validated_data,
-                headers=headers,
-                timeout=10,
-            )
-            resp.raise_for_status()
-        except http.RequestException:
-            return Response(
-                {"error": "Failed to complete upload with File Manager"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        reference.status = "active"
-        reference.save()
-        return Response(MediaReferenceSerializer(reference).data)
+        file_id, reference = self._resolve_file_id(pk)
+        upstream_resp, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/complete",
+            payload=serializer.validated_data,
+        )
+        if upstream_resp is not None and upstream_resp.status_code == 200 and reference:
+            reference.status = "active"
+            reference.save(update_fields=["status"])
+        return response
 
     @swagger_auto_schema(
         operation_summary="Direct FM passthrough: complete by file_id",
@@ -343,26 +331,17 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=['post'], url_path='abort')
     def abort(self, request, pk=None):
-        reference = self.get_object()
-        headers      = self._get_fm_headers(request)
-        storage_base = settings.ARNA_STORAGE_BASE_URL
-
-        try:
-            resp = http.post(
-                f"{storage_base}/api/files/{reference.file_id}/abort",
-                headers=headers,
-                timeout=10,
-            )
-            resp.raise_for_status()
-        except http.RequestException:
-            return Response(
-                {"error": "Failed to abort upload with File Manager"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        reference.status = "aborted"
-        reference.save()
-        return Response({"status": "aborted"})
+        file_id, reference = self._resolve_file_id(pk)
+        upstream_resp, response = self._proxy_to_fm(
+            request,
+            method="POST",
+            path=f"/api/files/{file_id}/abort",
+            payload={},
+        )
+        if upstream_resp is not None and upstream_resp.status_code == 200 and reference:
+            reference.status = "aborted"
+            reference.save(update_fields=["status"])
+        return response
 
     @swagger_auto_schema(
         operation_summary="Direct FM passthrough: abort by file_id",

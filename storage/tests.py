@@ -172,6 +172,30 @@ class StorageProxyTest(TestCase):
         self.assertEqual(response.json()["parts"][0]["url"], "https://s3.local/part1")
 
     @patch('storage.views.http.post')
+    def test_storage_presign_old_path_accepts_file_id_directly(self, mock_storage_post):
+        """Old presign path should passthrough even when identifier is file_id (no local reference)."""
+        storage_file_id = str(uuid.uuid4())
+
+        class MockPresignResp:
+            status_code = 200
+            def json(self): return {
+                "file_id": storage_file_id,
+                "parts": [{"part_number": 1, "url": "https://s3.local/part1"}]
+            }
+
+        mock_storage_post.return_value = MockPresignResp()
+
+        client = Client(HTTP_HOST=self.domain)
+        response = client.post(
+            f"/api/files/{storage_file_id}/presign/",
+            {"parts": [1]},
+            **self._auth(),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["file_id"], storage_file_id)
+
+    @patch('storage.views.http.post')
     def test_storage_fm_presign_passthrough_by_file_id(self, mock_storage_post):
         """fm presign endpoint proxies directly to File Manager using file_id path param."""
         storage_file_id = str(uuid.uuid4())
