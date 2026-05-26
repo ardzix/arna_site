@@ -22,6 +22,7 @@ from core.models import Template, TemplatePage, TemplateSection, TemplateBlock, 
 from core.serializers import (
     TemplateSerializer,
     TemplateWriteSerializer,
+    TemplateManualCreateSerializer,
     TenantRegistrationSerializer,
     TenantSerializer,
     TenantUpdateSerializer,
@@ -1121,13 +1122,13 @@ class TenantTemplateListCreateView(APIView):
 
     @swagger_auto_schema(
         operation_summary='Buat template baru (private)',
-        request_body=TemplateWriteSerializer,
+        request_body=TemplateManualCreateSerializer,
         responses=_template_write_responses,
         security=[{'Bearer': []}],
     )
     def post(self, request):
         schema = _current_schema()
-        serializer = TemplateWriteSerializer(data=request.data)
+        serializer = TemplateManualCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         template = serializer.save(
             is_published=False,

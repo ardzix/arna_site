@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 from core.models import (
     Template, TemplatePage, TemplateSection, TemplateBlock, TemplateListItem,
@@ -120,6 +121,87 @@ class TemplateWriteSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError("Slug template ini sudah digunakan.")
         return value
+
+
+class TemplateListItemWriteSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True, default="")
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    icon = serializers.CharField(required=False, allow_blank=True, default="")
+    order = serializers.IntegerField(min_value=0, required=False, default=0)
+
+
+class TemplateBlockWriteSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True, default="")
+    subtitle = serializers.CharField(required=False, allow_blank=True, default="")
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    image_url = serializers.CharField(required=False, allow_blank=True, allow_null=True, default="")
+    extra = serializers.JSONField(required=False, default=dict)
+    order = serializers.IntegerField(min_value=0)
+    items = TemplateListItemWriteSerializer(many=True, required=False, default=list)
+
+
+class TemplateSectionWriteSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    order = serializers.IntegerField(min_value=0)
+    is_active = serializers.BooleanField(required=False, default=True)
+    blocks = TemplateBlockWriteSerializer(many=True, required=False, default=list)
+
+
+class TemplatePageWriteSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    slug = serializers.SlugField(max_length=255)
+    order = serializers.IntegerField(min_value=0, required=False, default=0)
+    is_home = serializers.BooleanField(required=False, default=False)
+    sections = TemplateSectionWriteSerializer(many=True, required=False, default=list)
+
+
+class TemplateManualCreateSerializer(serializers.ModelSerializer):
+    """
+    Create template with full nested structure:
+    template -> pages -> sections -> blocks -> items.
+    """
+    pages = TemplatePageWriteSerializer(many=True)
+
+    class Meta:
+        model = Template
+        fields = ['name', 'slug', 'description', 'preview_image_url', 'category', 'pages']
+
+    def validate_pages(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one page is required.")
+        home_count = sum(1 for p in value if p.get("is_home"))
+        if home_count != 1:
+            raise serializers.ValidationError("Exactly one page must be marked as is_home=true.")
+        return value
+
+    def validate_slug(self, value):
+        qs = Template.objects.filter(slug=value)
+        if qs.exists():
+            raise serializers.ValidationError("Slug template ini sudah digunakan.")
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data):
+        pages_data = validated_data.pop("pages", [])
+        template = Template.objects.create(**validated_data)
+
+        for page_data in pages_data:
+            sections_data = page_data.pop("sections", [])
+            page = TemplatePage.objects.create(template=template, **page_data)
+            for section_data in sections_data:
+                blocks_data = section_data.pop("blocks", [])
+                section = TemplateSection.objects.create(
+                    template=template,
+                    page=page,
+                    **section_data,
+                )
+                for block_data in blocks_data:
+                    items_data = block_data.pop("items", [])
+                    block = TemplateBlock.objects.create(section=section, **block_data)
+                    for item_data in items_data:
+                        TemplateListItem.objects.create(block=block, **item_data)
+
+        return template
 
 
 # ─── Tenant Registration ──────────────────────────────────────────────────────

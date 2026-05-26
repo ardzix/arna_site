@@ -255,3 +255,81 @@ class TenantRegistrationAudienceTest(TestCase):
                 content_type="application/json",
             )
         self.assertEqual(response.status_code, 401)
+
+
+@override_settings(ALLOWED_HOSTS=['*'])
+class TenantTemplateManualCreateTest(TestCase):
+    def setUp(self):
+        from django.db import connection
+        connection.set_schema_to_public()
+
+        self.org_id = uuid.uuid4()
+        self.tenant = Tenant.objects.create(
+            schema_name='tenant_template_manual',
+            name='Template Manual',
+            slug='template-manual',
+            sso_organization_id=self.org_id,
+        )
+        self.domain = 'template-manual.localhost'
+        Domain.objects.create(domain=self.domain, tenant=self.tenant, is_primary=True)
+
+        self.private_pem, self.public_pem = generate_rsa_keypair()
+        self.patcher = patch.object(
+            ArnaJWTAuthentication,
+            '_public_key_override',
+            new=self.public_pem.decode(),
+            create=True,
+        )
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
+
+    def _auth(self):
+        token = make_jwt(self.private_pem, uuid.uuid4(), self.org_id, roles=["site_admin"])
+        return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_create_template_manual_with_pages_structure(self):
+        client = Client(HTTP_HOST=self.domain)
+        payload = {
+            "name": "Manual Template",
+            "slug": "manual-template",
+            "description": "Template with pages",
+            "preview_image_url": "https://example.com/preview.png",
+            "category": "landing-page",
+            "pages": [
+                {
+                    "title": "Home",
+                    "slug": "home",
+                    "order": 1,
+                    "is_home": True,
+                    "sections": [
+                        {
+                            "type": "hero",
+                            "order": 1,
+                            "is_active": True,
+                            "blocks": [
+                                {
+                                    "title": "Hero Title",
+                                    "order": 1,
+                                    "items": [{"title": "Item A", "order": 1}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+        response = client.post(
+            "/api/templates/",
+            payload,
+            content_type="application/json",
+            **self._auth(),
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["slug"], "manual-template")
+        self.assertEqual(len(data["pages"]), 1)
+        self.assertEqual(data["pages"][0]["slug"], "home")
+        self.assertEqual(data["pages"][0]["sections"][0]["type"], "hero")
