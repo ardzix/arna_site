@@ -98,6 +98,9 @@ class CommerceClient:
             },
         )
 
+    def process_payment_event(self, payload: dict):
+        return self._request("POST", "/integrations/payment-events/process/", json=payload)
+
 
 def _catalog_cache_key(product_code: str, plan_code: str) -> str:
     return f"commerce:catalog:{product_code}:{plan_code}"
@@ -144,4 +147,22 @@ def bootstrap_free_plan_for_org(organization_id: str, bearer_token: str):
         }
     )
     submit = client.submit_order(order["id"])
-    return {"order": order, "submit": submit}
+    invoice_number = ""
+    if isinstance(submit, dict):
+        invoice_number = ((submit.get("invoice") or {}).get("invoice_number") or "")
+    activation = {}
+    if invoice_number:
+        activation = client.process_payment_event(
+            {
+                "webhook_data": {
+                    "id": f"internal-free-{order['id']}",
+                    "external_id": invoice_number,
+                    "status": "PAID",
+                },
+                "metadata": {
+                    "xendit_event": "invoice.paid",
+                    "source": "arna_site_internal_bootstrap",
+                },
+            }
+        )
+    return {"order": order, "submit": submit, "activation": activation}

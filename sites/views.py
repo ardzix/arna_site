@@ -12,6 +12,12 @@ from drf_yasg import openapi
 from django.core.exceptions import ValidationError
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
+from core.limits import (
+    fetch_runtime_entitlements,
+    assert_max_pages_per_template,
+    LimitError,
+)
+from core.commerce import CommerceClientError
 from sites.models import Page, Section, ContentBlock, ListItem
 from sites.serializers import (
     PageSerializer, PageDetailSerializer,
@@ -208,6 +214,26 @@ class PageListCreateView(ListCreateAPIView):
 
     def get_serializer_class(self):
         return PageSerializer
+
+    def perform_create(self, serializer):
+        token = ""
+        auth_header = self.request.META.get("HTTP_AUTHORIZATION", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+        org_id = str(getattr(self.request.user, "org_id", "") or "")
+        try:
+            entitlements = fetch_runtime_entitlements(org_id, token)
+            current_pages = Page.objects.filter(is_active=True).count()
+            assert_max_pages_per_template(entitlements, current_pages)
+        except CommerceClientError as exc:
+            from rest_framework.exceptions import APIException
+            e = APIException(f"Failed reading package entitlements: {exc}")
+            e.status_code = 502
+            raise e
+        except LimitError as exc:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied(str(exc))
+        serializer.save()
 
 
 class PageDetailView(RetrieveUpdateDestroyAPIView):

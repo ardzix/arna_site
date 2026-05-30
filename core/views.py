@@ -36,6 +36,13 @@ from core.commerce import (
     resolve_catalog_ids,
     bootstrap_free_plan_for_org,
 )
+from core.limits import (
+    fetch_runtime_entitlements,
+    assert_max_websites,
+    assert_max_templates,
+    assert_custom_domain_enabled,
+    LimitError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +206,6 @@ class TenantRegisterView(APIView):
     permission_classes = [AllowAny]
     DEFAULT_OWNER_PERMISSION = "arnasite.cms.manage"
     DEFAULT_OWNER_ROLE = "site_admin"
-    ENTERPRISE_PERMISSION = "arnasite.enterprise.provision"
     SHARED_POOL_SCHEMA = "pool_shared"
     SHARED_POOL_KEY = "pool_shared"
 
@@ -450,27 +456,23 @@ class TenantRegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        requested_plan = data.get("plan", Tenant.PLAN_FREE)
-        user_permissions = claims.get("permissions", []) or []
-        is_enterprise_allowed = bool(claims.get("is_owner")) and (self.ENTERPRISE_PERMISSION in user_permissions)
-
-        if requested_plan == Tenant.PLAN_ENTERPRISE and not is_enterprise_allowed:
-            return Response(
-                {
-                    "error": (
-                        "Enterprise provisioning requires additional privilege. "
-                        f"Missing permission: `{self.ENTERPRISE_PERMISSION}`."
-                    )
-                },
-                status=403,
-            )
-
         slug        = data["slug"]
-        schema_name = slug.replace("-", "_")
-        tenancy_mode = Tenant.TENANCY_DEDICATED if requested_plan == Tenant.PLAN_ENTERPRISE else Tenant.TENANCY_SHARED
-        shared_pool_key = self.SHARED_POOL_KEY if tenancy_mode == Tenant.TENANCY_SHARED else ""
-        if tenancy_mode == Tenant.TENANCY_SHARED:
-            schema_name = self.SHARED_POOL_SCHEMA
+        schema_name = self.SHARED_POOL_SCHEMA
+        tenancy_mode = Tenant.TENANCY_SHARED
+        shared_pool_key = self.SHARED_POOL_KEY
+
+        # Package/limit source of truth is Commerce.
+        # Enforce max_websites before tenant creation.
+        try:
+            entitlements = fetch_runtime_entitlements(str(org_id), self._bearer_token(request))
+            current_count = Tenant.objects.filter(sso_organization_id=org_id, is_active=True).count()
+            assert_max_websites(entitlements, current_count)
+        except CommerceClientError:
+            # Fallback: if runtime entitlements are unavailable, allow registration
+            # and rely on subsequent entitlement sync/retry.
+            pass
+        except LimitError as e:
+            return Response({"error": str(e)}, status=403)
 
         backend_suffix, frontend_suffix = self._domain_suffixes()
         backend_domain_value = f"{slug}.{backend_suffix}" if backend_suffix else slug
@@ -486,7 +488,7 @@ class TenantRegisterView(APIView):
                 name=data["name"],
                 slug=slug,
                 sso_organization_id=org_id,
-                plan=requested_plan,
+                plan=Tenant.PLAN_FREE,
                 tenancy_mode=tenancy_mode,
                 shared_pool_key=shared_pool_key,
             )
@@ -771,7 +773,15 @@ class TenantPremiumCheckoutView(APIView):
         token = _extract_bearer(request)
         org_id = str(getattr(request.user, "org_id", "") or "")
         product_code = getattr(settings, "ARNA_COMMERCE_PRODUCT_CODE", "arna-site")
-        premium_plan_code = getattr(settings, "ARNA_COMMERCE_PREMIUM_PLAN_CODE", "arna-site-premium-monthly")
+        interval = serializer.validated_data.get("billing_interval", "monthly")
+        if interval == "yearly":
+            premium_plan_code = getattr(
+                settings,
+                "ARNA_COMMERCE_PREMIUM_ANNUAL_PLAN_CODE",
+                "arna-site-premium-annually",
+            )
+        else:
+            premium_plan_code = getattr(settings, "ARNA_COMMERCE_PREMIUM_PLAN_CODE", "arna-site-premium-monthly")
         payment_method = getattr(settings, "ARNA_COMMERCE_PREMIUM_PAYMENT_METHOD", "pg")
 
         client = CommerceClient(token)
@@ -883,10 +893,29 @@ class DomainListCreateView(APIView):
     )
     def post(self, request):
         tenant = self._get_tenant()
+        org_id = str(getattr(request.user, "org_id", "") or "")
+        token = request.META.get("HTTP_AUTHORIZATION", "").split(" ", 1)[1] if request.META.get("HTTP_AUTHORIZATION", "").startswith("Bearer ") else ""
+        try:
+            entitlements = fetch_runtime_entitlements(org_id, token)
+        except CommerceClientError as exc:
+            return Response({"error": f"Failed reading package entitlements: {exc}"}, status=502)
+
         payload = dict(request.data)
         payload.setdefault("role", Domain.ROLE_FRONTEND_CUSTOM)
         payload.setdefault("status", Domain.STATUS_PENDING)
         payload.setdefault("is_primary_frontend", False)
+        # User-created domains are always treated as custom frontend domains.
+        # Backend/default frontend domains are system-generated during tenant registration.
+        if payload.get("role") != Domain.ROLE_FRONTEND_CUSTOM:
+            return Response(
+                {"error": "Only custom frontend domains can be added manually."},
+                status=400,
+            )
+        try:
+            assert_custom_domain_enabled(entitlements)
+        except LimitError as e:
+            return Response({"error": str(e)}, status=403)
+
         serializer = DomainSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
         backend_primary = Domain.objects.filter(
@@ -1120,6 +1149,20 @@ class TenantTemplateListCreateView(APIView):
     )
     def post(self, request):
         schema = _current_schema()
+        org_id = str(getattr(request.user, "org_id", "") or "")
+        token = _extract_bearer(request)
+        try:
+            entitlements = fetch_runtime_entitlements(org_id, token)
+            current_templates = Template.objects.filter(
+                is_active=True,
+                source_tenant_schema=schema,
+            ).count()
+            assert_max_templates(entitlements, current_templates)
+        except CommerceClientError as exc:
+            return Response({"error": f"Failed reading package entitlements: {exc}"}, status=502)
+        except LimitError as e:
+            return Response({"error": str(e)}, status=403)
+
         serializer = TemplateManualCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         template = serializer.save(

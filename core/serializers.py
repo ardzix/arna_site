@@ -211,16 +211,11 @@ class TenantRegistrationSerializer(serializers.Serializer):
                  help_text="Display name of the organization.")
     slug   = serializers.SlugField(max_length=100,
                  help_text="URL-friendly identifier, e.g. 'toko-budi'.")
-    plan   = serializers.ChoiceField(
-        choices=[Tenant.PLAN_FREE, Tenant.PLAN_PRO, Tenant.PLAN_ENTERPRISE],
+    plan = serializers.ChoiceField(
+        choices=[Tenant.PLAN_FREE],
         required=False,
         default=Tenant.PLAN_FREE,
-        help_text=(
-            "Requested package plan. "
-            "Default `free`. "
-            "`free` and `pro` will be provisioned on shared schema pool. "
-            "`enterprise` requires special privilege and gets dedicated schema."
-        ),
+        help_text="Registration always starts with free package. Upgrades are handled via Commerce checkout.",
     )
 
     def validate_slug(self, value):
@@ -233,6 +228,12 @@ class TenantRegistrationSerializer(serializers.Serializer):
 
 
 class PremiumCheckoutSerializer(serializers.Serializer):
+    billing_interval = serializers.ChoiceField(
+        choices=["monthly", "yearly"],
+        required=False,
+        default="monthly",
+        help_text="Premium billing interval: monthly (IDR 500k) or yearly (IDR 5m).",
+    )
     payer_email = serializers.EmailField(required=False, allow_blank=False)
     description = serializers.CharField(required=False, allow_blank=True, max_length=255)
     success_redirect_url = serializers.URLField(required=False)

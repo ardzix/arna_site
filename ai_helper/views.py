@@ -8,10 +8,13 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db import connection
 from django_q.tasks import async_task
+from django.utils import timezone
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
 from ai_helper.models import AICopilotSession, AIGenerationDraft, AIAsyncJob
 from core.models import Template
+from core.commerce import CommerceClientError
+from core.limits import fetch_runtime_entitlements, assert_ai_monthly_calls, LimitError
 from ai_helper.serializers import (
     AICopilotSessionCreateSerializer,
     AICopilotSessionSerializer,
@@ -410,6 +413,22 @@ class AISessionGenerateView(APIView):
         session = get_object_or_404(AICopilotSession, id=session_id)
         req = AIGenerateRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        token = auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else ""
+        org_id = str(getattr(request.user, "org_id", "") or "")
+        now = timezone.now()
+        month_usage = AIAsyncJob.objects.filter(
+            operation=AIAsyncJob.OP_GENERATE,
+            created_at__year=now.year,
+            created_at__month=now.month,
+        ).count()
+        try:
+            entitlements = fetch_runtime_entitlements(org_id, token)
+            assert_ai_monthly_calls(entitlements, month_usage)
+        except CommerceClientError as exc:
+            return Response({"error": f"Failed reading package entitlements: {exc}"}, status=502)
+        except LimitError as exc:
+            return Response({"error": str(exc)}, status=403)
 
         existing = AIAsyncJob.objects.filter(
             session=session,
