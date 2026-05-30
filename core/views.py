@@ -268,6 +268,22 @@ class TenantRegisterView(APIView):
                 return role
         return None
 
+    def _request_error_details(self, error):
+        """Extract concise HTTP error details from a requests exception."""
+        response = getattr(error, "response", None)
+        if response is None:
+            return {"status_code": None, "body": str(error)}
+        try:
+            body = response.json()
+        except ValueError:
+            body = (response.text or "").strip()
+        if isinstance(body, str) and len(body) > 800:
+            body = f"{body[:800]}...<truncated>"
+        return {
+            "status_code": response.status_code,
+            "body": body,
+        }
+
     def _member_id_for_user(self, members, user_id):
         if not user_id:
             return None
@@ -427,11 +443,18 @@ class TenantRegisterView(APIView):
                 "user_id": str(user_id),
             }
         except (http.RequestException, ValueError) as e:
-            logger.warning("SSO IAM provisioning failed for org_id=%s: %s", org_id, e)
+            error_details = self._request_error_details(e)
+            logger.warning(
+                "SSO IAM provisioning failed for org_id=%s: %s; details=%s",
+                org_id,
+                e,
+                error_details,
+            )
             return {
                 "ok": False,
                 "message": f"Tenant created, but SSO IAM provisioning failed: {e}",
                 "organization_id": str(org_id),
+                "sso_error": error_details,
             }
 
     def _decode_jwt(self, request):
