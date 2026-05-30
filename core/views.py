@@ -244,9 +244,28 @@ class TenantRegisterView(APIView):
         return []
 
     def _find_by_name(self, items, name):
+        """Return the first object whose ``name`` matches the requested value."""
         for item in items:
             if item.get("name") == name:
                 return item
+        return None
+
+    def _find_permission_for_org(self, permissions, permission_name, organization_id):
+        """Return the permission matching both name and organization id."""
+        for permission in permissions:
+            if permission.get("name") != permission_name:
+                continue
+            if str(permission.get("organization")) == str(organization_id):
+                return permission
+        return None
+
+    def _find_role_for_org(self, roles, role_name, organization_id):
+        """Return the role matching both name and organization id."""
+        for role in roles:
+            if role.get("name") != role_name:
+                continue
+            if str(role.get("organization")) == str(organization_id):
+                return role
         return None
 
     def _member_id_for_user(self, members, user_id):
@@ -316,7 +335,11 @@ class TenantRegisterView(APIView):
             )
             perm_list_resp.raise_for_status()
             permissions = self._extract_items(perm_list_resp.json())
-            permission = self._find_by_name(permissions, self.DEFAULT_OWNER_PERMISSION)
+            permission = self._find_permission_for_org(
+                permissions,
+                self.DEFAULT_OWNER_PERMISSION,
+                org_id,
+            )
             if not permission:
                 perm_create_resp = http.post(
                     f"{base}/iam/permissions/",
@@ -341,7 +364,11 @@ class TenantRegisterView(APIView):
             )
             role_list_resp.raise_for_status()
             roles = self._extract_items(role_list_resp.json())
-            role = self._find_by_name(roles, self.DEFAULT_OWNER_ROLE)
+            role = self._find_role_for_org(
+                roles,
+                self.DEFAULT_OWNER_ROLE,
+                org_id,
+            )
             if not role:
                 role_create_resp = http.post(
                     f"{base}/iam/roles/",
