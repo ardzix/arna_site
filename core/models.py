@@ -27,7 +27,7 @@ class Tenant(TenantMixin):
 
     # Override TenantMixin field to allow multiple tenant rows reusing one shared schema.
     schema_name = models.CharField(max_length=63, db_index=True)
-    sso_organization_id = models.CharField(max_length=255, unique=True, db_index=True)
+    sso_organization_id = models.CharField(max_length=255, db_index=True)
     name      = models.CharField(max_length=255)
     slug      = models.SlugField(unique=True)
     plan      = models.CharField(max_length=20, choices=PLAN_CHOICES, default=PLAN_FREE, db_index=True)

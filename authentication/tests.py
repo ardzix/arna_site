@@ -29,24 +29,22 @@ class ArnaJWTAuthenticationTest(TestCase):
 
         self.user_id = uuid.uuid4()
         self.org_id = uuid.uuid4()
-        
-        # We need a mock DB tenant for the valid flow because it queries Tenant.objects
-        # but to keep unit tests fast and independent of django_tenants DB setup
-        # we can mock the Tenant resolution
-        self.tenant_patch = patch('core.models.Tenant.objects.get')
-        self.mock_tenant_get = self.tenant_patch.start()
-        
+
+        # Tenant resolution now uses active request tenant context (connection.tenant).
+        self.connection_patch = patch('authentication.jwt_backends.connection')
+        self.mock_connection = self.connection_patch.start()
         mock_tenant = MagicMock()
         mock_tenant.schema_name = 'tenant_mock'
         mock_tenant.name = 'Mock Tenant'
-        self.mock_tenant_get.return_value = mock_tenant
+        mock_tenant.sso_organization_id = str(self.org_id)
+        self.mock_connection.tenant = mock_tenant
 
         self.cache_patch = patch('authentication.jwt_backends.cache')
         self.mock_cache = self.cache_patch.start()
         self.mock_cache.get.return_value = None
 
     def tearDown(self):
-        self.tenant_patch.stop()
+        self.connection_patch.stop()
         self.cache_patch.stop()
 
     def make_mock_request(self, auth_header=None):
@@ -107,8 +105,7 @@ class ArnaJWTAuthenticationTest(TestCase):
         self.assertIsNotNone(result)
 
     def test_org_id_no_matching_tenant(self):
-        from core.models import Tenant
-        self.mock_tenant_get.side_effect = Tenant.DoesNotExist
+        self.mock_connection.tenant.sso_organization_id = str(uuid.uuid4())
         token = make_jwt(self.private_pem, self.user_id, self.org_id)
         req = self.make_mock_request(auth_header=f"Bearer {token}")
         result = self.auth.authenticate(req)
@@ -131,6 +128,13 @@ class ArnaJWTAuthenticationTest(TestCase):
         
         self.mock_cache.set.assert_called_once()
 
+    def test_public_schema_does_not_bind_tenant_schema(self):
+        self.mock_connection.tenant.schema_name = "public"
+        token = make_jwt(self.private_pem, self.user_id, self.org_id)
+        req = self.make_mock_request(auth_header=f"Bearer {token}")
+        user, _ = self.auth.authenticate(req)
+        self.assertEqual(user.tenant_schema, "")
+
     def test_ssouser_fields_populated(self):
         token = make_jwt(self.private_pem, self.user_id, self.org_id, roles=["site_admin"], is_owner=True)
         req = self.make_mock_request(auth_header=f"Bearer {token}")
@@ -145,10 +149,7 @@ class ArnaJWTAuthenticationTest(TestCase):
         
         cached_user = MagicMock()
         self.mock_cache.get.return_value = {"user": cached_user}
-        
-        # If cache hits, we don't query the DB, so we can stop our mock tenant get
-        self.mock_tenant_get.side_effect = Exception("Should not hit DB or JWT decode!")
-        
+
         user, returned_token = self.auth.authenticate(req)
         self.assertEqual(user, cached_user)
 

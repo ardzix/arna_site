@@ -7,6 +7,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from authentication.backends import SSOUser
 import logging
 from functools import lru_cache
+from django.db import connection
 
 logger = logging.getLogger(__name__)
 
@@ -87,16 +88,17 @@ class ArnaJWTAuthentication(BaseAuthentication):
         user_id = claims.get("user_id")
         org_id = claims.get("org_id")
 
-        # Resolve tenant from organization ID.
-        # If tenant is not found, keep user authenticated and let permission layer
-        # return 403 (clear permission-denied semantics) instead of 401 anonymous.
-        from core.models import Tenant
+        # Resolve tenant from active host context first.
+        # This supports multiple tenants under one org_id without ambiguous DB lookups.
+        tenant = None
         try:
-            tenant = Tenant.objects.get(sso_organization_id=org_id)
-        except Tenant.DoesNotExist:
-            tenant = None
+            active_tenant = getattr(connection, "tenant", None)
+            active_schema = str(getattr(active_tenant, "schema_name", "") or "")
+            active_org = str(getattr(active_tenant, "sso_organization_id", "") or "")
+            if active_tenant and active_schema not in ("", "public") and active_org == str(org_id):
+                tenant = active_tenant
         except Exception as e:
-            logger.error("DB error looking up tenant for org_id=%s: %s", org_id, e)
+            logger.error("Error resolving active tenant context for org_id=%s: %s", org_id, e)
             raise AuthenticationFailed(f"Server error during authentication. Contact support. ({type(e).__name__})")
 
         user = SSOUser(

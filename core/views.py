@@ -177,10 +177,7 @@ _register_responses = {
     403: openapi.Response(
         description='Hanya org owner (`is_owner=true` dalam JWT) yang boleh mendaftarkan tenant.',
     ),
-    409: openapi.Response(
-        description='Organisasi ini sudah memiliki tenant terdaftar.',
-        examples={'application/json': {'error': 'A tenant for this organization already exists.'}},
-    ),
+    409: openapi.Response(description='Tenant/domain conflict (slug/domain sudah dipakai).'),
 }
 
 
@@ -188,7 +185,8 @@ class TenantRegisterView(APIView):
     """
     Mendaftarkan tenant baru di ArnaSite untuk sebuah organisasi Arna SSO.
 
-    Endpoint ini dipanggil **sekali** saat org owner pertama kali setup sitenya.
+    Endpoint ini dapat dipanggil berkali-kali untuk membuat beberapa tenant
+    di organisasi yang sama.
     `org_id` diambil langsung dari JWT — tidak bisa dimanipulasi dari request body.
 
     Pada sukses:
@@ -446,12 +444,6 @@ class TenantRegisterView(APIView):
             return Response(
                 {"error": "Hanya owner organisasi yang bisa mendaftarkan tenant. Pastikan kamu login sebagai owner di Arna SSO (is_owner=true)."},
                 status=403,
-            )
-
-        if Tenant.objects.filter(sso_organization_id=org_id).exists():
-            return Response(
-                {"error": "A tenant for this organization already exists."},
-                status=409,
             )
 
         serializer = TenantRegistrationSerializer(data=request.data)
