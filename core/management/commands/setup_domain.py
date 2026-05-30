@@ -1,4 +1,6 @@
+"""Module for core.management.commands.setup_domain."""
 import uuid
+
 from django.core.management.base import BaseCommand
 from core.models import Tenant, Domain
 
@@ -6,6 +8,7 @@ import os
 import sys
 
 class Command(BaseCommand):
+    """Command class."""
     help = 'Registers a production domain for the public schema.'
 
     def handle(self, *args, **options):

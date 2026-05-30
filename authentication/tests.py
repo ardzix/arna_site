@@ -1,4 +1,6 @@
+"""Module for authentication.tests."""
 import os
+
 import uuid
 import tempfile
 from unittest.mock import patch, MagicMock
@@ -17,6 +19,7 @@ from authentication.test_helpers import generate_rsa_keypair, make_jwt
 
 class ArnaJWTAuthenticationTest(TestCase):
     @classmethod
+    """ArnaJWTAuthenticationTest class."""
     def setUpClass(cls):
         super().setUpClass()
         cls.private_pem, cls.public_pem = generate_rsa_keypair()
@@ -243,6 +246,7 @@ class ArnaJWTAuthenticationTest(TestCase):
         
         
 class PermissionTest(TestCase):
+    """PermissionTest class."""
     def test_tenant_admin_with_site_admin_role(self):
         perm = IsTenantAdmin()
         req = MagicMock()

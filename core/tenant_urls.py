@@ -1,4 +1,6 @@
+"""Module for core.tenant_urls."""
 from django.urls import path
+
 from core.views import (
     TenantDetailView,
     ApplyTemplateView,

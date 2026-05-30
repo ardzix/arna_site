@@ -1,4 +1,6 @@
+"""Module for sites.urls."""
 from django.urls import path
+
 from sites.views import (
     PageListCreateView, PageDetailView, PageReorderView,
     SectionListCreateView, SectionDetailView, SectionReorderView,

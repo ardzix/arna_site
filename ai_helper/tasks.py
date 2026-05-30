@@ -1,4 +1,6 @@
+"""Module for ai_helper.tasks."""
 from django.utils import timezone
+
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django_tenants.utils import schema_context
@@ -49,17 +51,20 @@ def run_ai_job(job_id: str, tenant_schema: str):
 
 
 def _run_generate(job: AIAsyncJob):
+    """_run_generate helper."""
     session = get_object_or_404(AICopilotSession, id=job.session_id)
     return generate_drafts(session)
 
 
 def _run_message(job: AIAsyncJob):
+    """_run_message helper."""
     session = get_object_or_404(AICopilotSession, id=job.session_id)
     assistant_reply = generate_brainstorm_reply(session)
     return {'assistant_reply': assistant_reply}
 
 
 def _run_publish(job: AIAsyncJob):
+    """_run_publish helper."""
     session = get_object_or_404(AICopilotSession, id=job.session_id)
     payload = job.input_json or {}
 

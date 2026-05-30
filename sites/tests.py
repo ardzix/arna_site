@@ -1,4 +1,6 @@
+"""Module for sites.tests."""
 from django.test import TestCase, override_settings, Client
+
 from unittest.mock import patch
 import uuid
 from core.models import Tenant, Domain
@@ -9,6 +11,7 @@ from sites.models import Page
 
 @override_settings(ALLOWED_HOSTS=['*'])
 class SitesCRUDTest(TestCase):
+    """SitesCRUDTest class."""
     def setUp(self):
         from django.db import connection
         connection.set_schema_to_public()

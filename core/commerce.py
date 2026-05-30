@@ -1,4 +1,6 @@
+"""Module for core.commerce."""
 import logging
+
 from typing import Any
 
 import requests
@@ -9,10 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class CommerceClientError(Exception):
+    """CommerceClientError class."""
     pass
 
 
 class CommerceClient:
+    """CommerceClient class."""
     def __init__(self, bearer_token: str):
         self.base_url = getattr(settings, "ARNA_COMMERCE_BASE_URL", "https://product.arnatech.id/api/v1").rstrip("/")
         self.timeout = int(getattr(settings, "ARNA_COMMERCE_HTTP_TIMEOUT", 20))
@@ -103,10 +107,12 @@ class CommerceClient:
 
 
 def _catalog_cache_key(product_code: str, plan_code: str) -> str:
+    """_catalog_cache_key helper."""
     return f"commerce:catalog:{product_code}:{plan_code}"
 
 
 def resolve_catalog_ids(client: CommerceClient, product_code: str, plan_code: str):
+    """resolve_catalog_ids helper."""
     key = _catalog_cache_key(product_code, plan_code)
     cached = cache.get(key)
     if cached:

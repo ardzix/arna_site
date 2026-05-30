@@ -1,4 +1,6 @@
+"""Module for storage.urls."""
 from django.urls import path
+
 from storage.views import MediaReferenceViewSet
 
 files = MediaReferenceViewSet.as_view({

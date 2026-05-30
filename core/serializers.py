@@ -1,4 +1,6 @@
+"""Module for core.serializers."""
 from django.db import transaction
+
 from rest_framework import serializers
 from core.models import (
     Template, TemplatePage, TemplateSection, TemplateBlock, TemplateListItem,
@@ -9,6 +11,7 @@ from core.models import (
 # ─── Domain / Tenant ──────────────────────────────────────────────────────────
 
 class DomainSerializer(serializers.ModelSerializer):
+    """DomainSerializer class."""
     class Meta:
         model = Domain
         fields = [
@@ -42,6 +45,7 @@ class DomainSerializer(serializers.ModelSerializer):
 
 
 class TenantSerializer(serializers.ModelSerializer):
+    """TenantSerializer class."""
     domains = DomainSerializer(many=True, read_only=True)
 
     class Meta:
@@ -55,6 +59,7 @@ class TenantSerializer(serializers.ModelSerializer):
 
 
 class TenantUpdateSerializer(serializers.ModelSerializer):
+    """TenantUpdateSerializer class."""
     class Meta:
         model = Tenant
         fields = ['name']
@@ -63,12 +68,14 @@ class TenantUpdateSerializer(serializers.ModelSerializer):
 # ─── Template Catalog ─────────────────────────────────────────────────────────
 
 class TemplateListItemSerializer(serializers.ModelSerializer):
+    """TemplateListItemSerializer class."""
     class Meta:
         model = TemplateListItem
         exclude = ('block',)
 
 
 class TemplateBlockSerializer(serializers.ModelSerializer):
+    """TemplateBlockSerializer class."""
     items = TemplateListItemSerializer(many=True, read_only=True,
                                        source='list_items')
 
@@ -78,6 +85,7 @@ class TemplateBlockSerializer(serializers.ModelSerializer):
 
 
 class TemplateSectionSerializer(serializers.ModelSerializer):
+    """TemplateSectionSerializer class."""
     blocks = TemplateBlockSerializer(many=True, read_only=True)
 
     class Meta:
@@ -86,6 +94,7 @@ class TemplateSectionSerializer(serializers.ModelSerializer):
 
 
 class TemplatePageSerializer(serializers.ModelSerializer):
+    """TemplatePageSerializer class."""
     sections = TemplateSectionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -124,6 +133,7 @@ class TemplateWriteSerializer(serializers.ModelSerializer):
 
 
 class TemplateListItemWriteSerializer(serializers.Serializer):
+    """TemplateListItemWriteSerializer class."""
     title = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
     icon = serializers.CharField(required=False, allow_blank=True, default="")
@@ -131,6 +141,7 @@ class TemplateListItemWriteSerializer(serializers.Serializer):
 
 
 class TemplateBlockWriteSerializer(serializers.Serializer):
+    """TemplateBlockWriteSerializer class."""
     title = serializers.CharField(required=False, allow_blank=True, default="")
     subtitle = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
@@ -141,6 +152,7 @@ class TemplateBlockWriteSerializer(serializers.Serializer):
 
 
 class TemplateSectionWriteSerializer(serializers.Serializer):
+    """TemplateSectionWriteSerializer class."""
     type = serializers.CharField()
     order = serializers.IntegerField(min_value=0)
     is_active = serializers.BooleanField(required=False, default=True)
@@ -148,6 +160,7 @@ class TemplateSectionWriteSerializer(serializers.Serializer):
 
 
 class TemplatePageWriteSerializer(serializers.Serializer):
+    """TemplatePageWriteSerializer class."""
     title = serializers.CharField(max_length=255)
     slug = serializers.SlugField(max_length=255)
     order = serializers.IntegerField(min_value=0, required=False, default=0)
@@ -207,6 +220,7 @@ class TemplateManualCreateSerializer(serializers.ModelSerializer):
 # ─── Tenant Registration ──────────────────────────────────────────────────────
 
 class TenantRegistrationSerializer(serializers.Serializer):
+    """TenantRegistrationSerializer class."""
     name   = serializers.CharField(max_length=255,
                  help_text="Display name of the organization.")
     slug   = serializers.SlugField(max_length=100,
@@ -228,6 +242,7 @@ class TenantRegistrationSerializer(serializers.Serializer):
 
 
 class PremiumCheckoutSerializer(serializers.Serializer):
+    """PremiumCheckoutSerializer class."""
     billing_interval = serializers.ChoiceField(
         choices=["monthly", "yearly"],
         required=False,

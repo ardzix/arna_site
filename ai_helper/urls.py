@@ -1,4 +1,6 @@
+"""Module for ai_helper.urls."""
 from django.urls import path
+
 from ai_helper.views import (
     AITemplateOptionListView,
     AISessionListCreateView,

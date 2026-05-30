@@ -1,4 +1,6 @@
+"""Module for authentication.jwt_backends."""
 import hashlib
+
 import jwt
 from django.conf import settings
 from django.core.cache import cache
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _jwt_decode_kwargs():
+    """_jwt_decode_kwargs helper."""
     kwargs = {
         "algorithms": [settings.SSO_JWT_ALGORITHM],
         "options": {
@@ -28,6 +31,7 @@ def _jwt_decode_kwargs():
 
 @lru_cache(maxsize=1)
 def get_cached_public_key(key_path):
+    """get_cached_public_key helper."""
     try:
         with open(key_path, 'r') as f:
             content = f.read()

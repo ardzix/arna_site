@@ -1,4 +1,6 @@
+"""Module for core.services."""
 from django.db import transaction
+
 from core.models import Template
 from sites.models import Page, Section, ContentBlock, ListItem
 

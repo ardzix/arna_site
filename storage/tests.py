@@ -1,4 +1,6 @@
+"""Module for storage.tests."""
 from django.test import TestCase, Client, override_settings
+
 from unittest.mock import patch
 import uuid
 from core.models import Tenant, Domain
@@ -8,6 +10,7 @@ from authentication.jwt_backends import ArnaJWTAuthentication
 
 @override_settings(ALLOWED_HOSTS=['*'])
 class StorageProxyTest(TestCase):
+    """StorageProxyTest class."""
     def setUp(self):
         from django.db import connection
         connection.set_schema_to_public()

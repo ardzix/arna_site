@@ -1,4 +1,6 @@
+"""Module for ai_helper.services."""
 from django.db import transaction
+
 from django.db.models import Max
 from django.shortcuts import get_object_or_404
 
@@ -20,11 +22,13 @@ class CopilotServiceError(Exception):
 
 
 def next_message_seq(session: AICopilotSession) -> int:
+    """next_message_seq helper."""
     max_seq = session.messages.aggregate(m=Max('seq'))['m']
     return (max_seq or 0) + 1
 
 
 def add_user_message(session: AICopilotSession, content: str, attachments: list[dict]):
+    """add_user_message helper."""
     with transaction.atomic():
         msg = AICopilotMessage.objects.create(
             session=session,
@@ -44,6 +48,7 @@ def add_user_message(session: AICopilotSession, content: str, attachments: list[
 
 
 def add_assistant_message(session: AICopilotSession, content: str, metadata: dict | None = None):
+    """add_assistant_message helper."""
     return AICopilotMessage.objects.create(
         session=session,
         role=AICopilotMessage.ROLE_ASSISTANT,
@@ -54,6 +59,7 @@ def add_assistant_message(session: AICopilotSession, content: str, metadata: dic
 
 
 def _session_context_text(session: AICopilotSession) -> str:
+    """_session_context_text helper."""
     chunks = []
     if session.title:
         chunks.append(f'Title: {session.title}')
@@ -70,6 +76,7 @@ def _session_context_text(session: AICopilotSession) -> str:
 
 
 def _save_draft(session: AICopilotSession, draft_type: str, payload_json=None, markdown_text=''):
+    """_save_draft helper."""
     version = (session.drafts.filter(draft_type=draft_type).aggregate(m=Max('version'))['m'] or 0) + 1
     return AIGenerationDraft.objects.create(
         session=session,
@@ -311,6 +318,7 @@ def publish_site_content_from_draft(session: AICopilotSession, site_content_draf
 
 
 def _current_schema():
+    """_current_schema helper."""
     from django.db import connection
     return connection.tenant.schema_name
 

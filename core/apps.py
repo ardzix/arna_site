@@ -1,4 +1,6 @@
+"""Module for core.apps."""
 import uuid
+
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate
 
@@ -40,6 +42,7 @@ def auto_seed_public_tenant(sender, **kwargs):
 
 
 class CoreConfig(AppConfig):
+    """CoreConfig class."""
     name = 'core'
 
     def ready(self):

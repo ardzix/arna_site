@@ -1,4 +1,6 @@
+"""Module for core.template_urls."""
 from django.urls import path
+
 from core.views import (
     TenantTemplateListCreateView,
     TenantTemplateDetailView,

@@ -1,4 +1,6 @@
+"""Module for ai_helper.views."""
 from django.shortcuts import get_object_or_404
+
 import uuid
 from django.db.models import Q
 from rest_framework.permissions import IsAuthenticated
@@ -47,10 +49,12 @@ def _json_safe(value):
 
 
 def _read_permissions():
+    """_read_permissions helper."""
     return [IsAuthenticated(), IsTenantMember()]
 
 
 def _write_permissions():
+    """_write_permissions helper."""
     return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 

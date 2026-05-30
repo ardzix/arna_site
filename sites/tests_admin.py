@@ -1,4 +1,6 @@
+"""Module for sites.tests_admin."""
 import tempfile
+
 import os
 import uuid
 from unittest.mock import patch
@@ -15,6 +17,7 @@ from authentication.jwt_backends import ArnaJWTAuthentication
 @override_settings(ALLOWED_HOSTS=['*'])
 class AdminAPITest(TestCase):
     @classmethod
+    """AdminAPITest class."""
     def setUpClass(cls):
         super().setUpClass()
         # Generate keypair once for the whole class

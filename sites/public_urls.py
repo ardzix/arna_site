@@ -1,4 +1,6 @@
+"""Module for sites.public_urls."""
 from django.urls import path
+
 from sites.views import PublicSiteView
 
 urlpatterns = [

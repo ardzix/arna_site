@@ -1,4 +1,6 @@
+"""Module for authentication.permissions."""
 from django.db import connection
+
 from rest_framework.permissions import BasePermission
 
 class IsTenantMember(BasePermission):

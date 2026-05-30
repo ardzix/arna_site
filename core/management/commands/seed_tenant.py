@@ -1,9 +1,12 @@
+"""Module for core.management.commands.seed_tenant."""
 import uuid
+
 from django.core.management.base import BaseCommand
 from core.models import Tenant, Domain, Template, TemplateSection, TemplateBlock
 
 
 class Command(BaseCommand):
+    """Command class."""
     help = 'Seeds the database with the initial public schema, templates, and a test tenant.'
 
     def handle(self, *args, **options):

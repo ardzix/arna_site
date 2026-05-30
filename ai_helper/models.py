@@ -1,8 +1,11 @@
+"""Module for ai_helper.models."""
 import uuid
+
 from django.db import models
 
 
 class AICopilotSession(models.Model):
+    """AICopilotSession class."""
     MODE_TEMPLATE = 'template'
     MODE_SITE = 'site'
     MODE_CHOICES = [
@@ -47,6 +50,7 @@ class AICopilotSession(models.Model):
 
 
 class AICopilotMessage(models.Model):
+    """AICopilotMessage class."""
     ROLE_USER = 'user'
     ROLE_ASSISTANT = 'assistant'
     ROLE_SYSTEM = 'system'
@@ -70,6 +74,7 @@ class AICopilotMessage(models.Model):
 
 
 class AICopilotAttachment(models.Model):
+    """AICopilotAttachment class."""
     TYPE_IMAGE = 'image'
     TYPE_CHOICES = [(TYPE_IMAGE, 'Image')]
 
@@ -86,6 +91,7 @@ class AICopilotAttachment(models.Model):
 
 
 class AIGenerationDraft(models.Model):
+    """AIGenerationDraft class."""
     TYPE_TEMPLATE = 'template'
     TYPE_SITE_CONTENT = 'site_content'
     TYPE_FE_GUIDE = 'fe_guide'
@@ -112,6 +118,7 @@ class AIGenerationDraft(models.Model):
 
 
 class AIAsyncJob(models.Model):
+    """AIAsyncJob class."""
     STATUS_ASKING = 'asking'
     STATUS_THINKING = 'thinking'
     STATUS_DONE = 'done'

@@ -1,4 +1,6 @@
+"""Module for authentication.backends."""
 class SSOUser:
+
     """
     Lightweight user proxy populated from JWT claims.
 

@@ -1,4 +1,6 @@
+"""Module for core.models."""
 import uuid
+
 from django.db import models
 from django.utils.text import slugify
 from django_tenants.models import TenantMixin, DomainMixin
@@ -147,6 +149,7 @@ class TemplatePage(models.Model):
 
 
 class TemplateSection(models.Model):
+    """TemplateSection class."""
     id       = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     template = models.ForeignKey(Template, on_delete=models.CASCADE,
                                  related_name="sections")
@@ -165,6 +168,7 @@ class TemplateSection(models.Model):
 
 
 class TemplateBlock(models.Model):
+    """TemplateBlock class."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     section     = models.ForeignKey(TemplateSection, on_delete=models.CASCADE,
                                     related_name="blocks")
@@ -184,6 +188,7 @@ class TemplateBlock(models.Model):
 
 
 class TemplateListItem(models.Model):
+    """TemplateListItem class."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     block       = models.ForeignKey(TemplateBlock, on_delete=models.CASCADE,
                                     related_name="list_items")

@@ -1,4 +1,6 @@
+"""Module for sites.views."""
 from rest_framework.views import APIView
+
 from rest_framework.generics import (
     ListCreateAPIView, RetrieveUpdateDestroyAPIView,
 )
@@ -28,10 +30,12 @@ WRITE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
 
 
 def _read_perms():
+    """_read_perms helper."""
     return [IsAuthenticated(), IsTenantMember()]
 
 
 def _write_perms():
+    """_write_perms helper."""
     return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 
@@ -168,6 +172,7 @@ _reorder_body = openapi.Schema(
 
 
 def _do_reorder(model, data):
+    """_do_reorder helper."""
     if not isinstance(data, list):
         return Response({"error": "Expected a list of {id, order}"}, status=400)
     with transaction.atomic():
@@ -181,6 +186,7 @@ def _do_reorder(model, data):
 
 
 def _do_scoped_reorder(queryset, data):
+    """_do_scoped_reorder helper."""
     if not isinstance(data, list):
         return Response({"error": "Expected a list of {id, order}"}, status=400)
     with transaction.atomic():

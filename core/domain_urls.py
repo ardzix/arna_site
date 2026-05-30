@@ -1,4 +1,6 @@
+"""Module for core.domain_urls."""
 from django.urls import path
+
 from core.views import DomainListCreateView, DomainDetailView, PublicDomainResolveView
 
 urlpatterns = [

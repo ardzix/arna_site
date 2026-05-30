@@ -1,4 +1,6 @@
+"""Module for core.views."""
 import jwt
+
 import uuid
 import logging
 import requests as http
@@ -673,6 +675,7 @@ class TenantDetailView(APIView):
 
 
 def _extract_bearer(request):
+    """_extract_bearer helper."""
     auth_header = request.META.get("HTTP_AUTHORIZATION", "")
     if not auth_header.startswith("Bearer "):
         return ""
@@ -1072,6 +1075,7 @@ class PublicDomainResolveView(APIView):
 # ─── Tenant Template Management ───────────────────────────────────────────────
 
 def _current_schema():
+    """_current_schema helper."""
     from django.db import connection
     return connection.tenant.schema_name
 

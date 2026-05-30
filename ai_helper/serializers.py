@@ -1,4 +1,6 @@
+"""Module for ai_helper.serializers."""
 from rest_framework import serializers
+
 import re
 from ai_helper.models import (
     AICopilotSession,
@@ -10,6 +12,7 @@ from ai_helper.models import (
 
 
 class AICopilotSessionCreateSerializer(serializers.ModelSerializer):
+    """AICopilotSessionCreateSerializer class."""
     llm_mode = serializers.ChoiceField(
         choices=AICopilotSession.LLM_MODE_CHOICES,
         default=AICopilotSession.LLM_MODE_CHAT_ECONOMY,
@@ -82,6 +85,7 @@ class AICopilotSessionCreateSerializer(serializers.ModelSerializer):
 
 
 class AICopilotAttachmentSerializer(serializers.ModelSerializer):
+    """AICopilotAttachmentSerializer class."""
     class Meta:
         model = AICopilotAttachment
         fields = ['id', 'type', 'url', 'mime_type', 'caption', 'created_at']
@@ -89,12 +93,14 @@ class AICopilotAttachmentSerializer(serializers.ModelSerializer):
 
 
 class AICopilotMessageCreateSerializer(serializers.Serializer):
+    """AICopilotMessageCreateSerializer class."""
     role = serializers.ChoiceField(choices=['user'])
     content = serializers.CharField(max_length=20000)
     attachments = AICopilotAttachmentSerializer(many=True, required=False)
 
 
 class AICopilotMessageSerializer(serializers.ModelSerializer):
+    """AICopilotMessageSerializer class."""
     attachments = AICopilotAttachmentSerializer(many=True, read_only=True)
 
     class Meta:
@@ -103,6 +109,7 @@ class AICopilotMessageSerializer(serializers.ModelSerializer):
 
 
 class AIGenerationDraftSerializer(serializers.ModelSerializer):
+    """AIGenerationDraftSerializer class."""
     class Meta:
         model = AIGenerationDraft
         fields = [
@@ -120,6 +127,7 @@ class AIGenerationDraftSerializer(serializers.ModelSerializer):
 
 
 class AICopilotSessionSerializer(serializers.ModelSerializer):
+    """AICopilotSessionSerializer class."""
     messages = AICopilotMessageSerializer(many=True, read_only=True)
     template_id = serializers.UUIDField(source='selected_template_id', allow_null=True, read_only=True)
 
@@ -144,6 +152,7 @@ class AICopilotSessionSerializer(serializers.ModelSerializer):
 
 
 class AICopilotSessionListSerializer(serializers.ModelSerializer):
+    """AICopilotSessionListSerializer class."""
     template_id = serializers.UUIDField(source='selected_template_id', allow_null=True, read_only=True)
     subtitle = serializers.SerializerMethodField()
 
@@ -174,10 +183,12 @@ class AICopilotSessionListSerializer(serializers.ModelSerializer):
 
 
 class AIGenerateRequestSerializer(serializers.Serializer):
+    """AIGenerateRequestSerializer class."""
     regenerate = serializers.BooleanField(required=False, default=False)
 
 
 class AIPublishRequestSerializer(serializers.Serializer):
+    """AIPublishRequestSerializer class."""
     template_draft_id = serializers.UUIDField(required=False)
     site_content_draft_id = serializers.UUIDField(required=False)
     fe_guide_draft_id = serializers.UUIDField(required=False)
@@ -185,6 +196,7 @@ class AIPublishRequestSerializer(serializers.Serializer):
 
 
 class AIAsyncJobSerializer(serializers.ModelSerializer):
+    """AIAsyncJobSerializer class."""
     check_status_url = serializers.SerializerMethodField()
 
     class Meta:

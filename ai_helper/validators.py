@@ -1,18 +1,23 @@
+"""Module for ai_helper.validators."""
 import json
+
 from pathlib import Path
 from django.conf import settings
 
 
 class SchemaValidationError(Exception):
+    """SchemaValidationError class."""
     pass
 
 
 def _schema_path(filename: str) -> Path:
+    """_schema_path helper."""
     base_dir = Path(settings.BASE_DIR)
     return base_dir / 'ai_schemas' / filename
 
 
 def validate_payload(schema_filename: str, payload: dict):
+    """validate_payload helper."""
     try:
         import jsonschema
     except ImportError as exc:

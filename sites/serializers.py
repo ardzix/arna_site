@@ -1,8 +1,11 @@
+"""Module for sites.serializers."""
 from rest_framework import serializers
+
 from sites.models import Page, Section, ContentBlock, ListItem
 
 
 class ListItemSerializer(serializers.ModelSerializer):
+    """ListItemSerializer class."""
     class Meta:
         model = ListItem
         fields = ["id", "block", "title", "description", "icon", "order",
@@ -12,6 +15,7 @@ class ListItemSerializer(serializers.ModelSerializer):
 
 
 class ContentBlockSerializer(serializers.ModelSerializer):
+    """ContentBlockSerializer class."""
     items = ListItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -23,6 +27,7 @@ class ContentBlockSerializer(serializers.ModelSerializer):
 
 
 class SectionSerializer(serializers.ModelSerializer):
+    """SectionSerializer class."""
     blocks = ContentBlockSerializer(many=True, read_only=True)
 
     class Meta:

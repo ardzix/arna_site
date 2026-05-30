@@ -1,4 +1,6 @@
+"""Module for core.tests."""
 import tempfile
+
 import os
 
 from django.test import TestCase, override_settings, Client
@@ -33,6 +35,7 @@ def _make_auth_mock(org_id_str):
 
 @override_settings(ALLOWED_HOSTS=['*'])
 class E2EApplyTemplateTest(TestCase):
+    """E2EApplyTemplateTest class."""
     def setUp(self):
         from django.db import connection
         connection.set_schema_to_public()
@@ -177,6 +180,7 @@ class E2EApplyTemplateTest(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['*'], ROOT_URLCONF='config.public_urls')
 class PublicTemplateVisibilityTest(TestCase):
+    """PublicTemplateVisibilityTest class."""
     def setUp(self):
         from django.db import connection
         connection.set_schema_to_public()
@@ -218,6 +222,7 @@ class PublicTemplateVisibilityTest(TestCase):
 @override_settings(ALLOWED_HOSTS=['*'], ROOT_URLCONF='config.public_urls')
 class TenantRegistrationAudienceTest(TestCase):
     @classmethod
+    """TenantRegistrationAudienceTest class."""
     def setUpClass(cls):
         super().setUpClass()
         cls.private_pem, cls.public_pem = generate_rsa_keypair()
@@ -259,6 +264,7 @@ class TenantRegistrationAudienceTest(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['*'])
 class TenantTemplateManualCreateTest(TestCase):
+    """TenantTemplateManualCreateTest class."""
     def setUp(self):
         from django.db import connection
         connection.set_schema_to_public()

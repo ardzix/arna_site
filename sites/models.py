@@ -1,4 +1,6 @@
+"""Module for sites.models."""
 import uuid
+
 from django.db import models
 from django.utils.text import slugify
 
@@ -38,6 +40,7 @@ class Page(models.Model):
 
 
 class Section(models.Model):
+    """Section class."""
     id       = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     page     = models.ForeignKey(Page, on_delete=models.CASCADE,
                                  related_name="sections", null=True, blank=True)
@@ -54,6 +57,7 @@ class Section(models.Model):
 
 
 class ContentBlock(models.Model):
+    """ContentBlock class."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     section     = models.ForeignKey(Section, on_delete=models.CASCADE,
                                     related_name="blocks")
@@ -73,6 +77,7 @@ class ContentBlock(models.Model):
 
 
 class ListItem(models.Model):
+    """ListItem class."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     block       = models.ForeignKey(ContentBlock, on_delete=models.CASCADE,
                                     related_name="items")

@@ -1,4 +1,6 @@
+"""Module for config.settings."""
 import os
+
 from pathlib import Path
 from dotenv import load_dotenv
 

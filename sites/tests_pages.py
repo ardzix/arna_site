@@ -1,4 +1,6 @@
+"""Module for sites.tests_pages."""
 import os
+
 import tempfile
 import uuid
 
@@ -16,6 +18,7 @@ from sites.models import Page, Section
 @override_settings(ALLOWED_HOSTS=['*'])
 class PageSectionReorderScopeTest(TestCase):
     @classmethod
+    """PageSectionReorderScopeTest class."""
     def setUpClass(cls):
         super().setUpClass()
         cls.private_pem, cls.public_pem = generate_rsa_keypair()

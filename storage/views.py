@@ -1,4 +1,6 @@
+"""Module for storage.views."""
 import requests as http
+
 from django.conf import settings
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -20,10 +22,12 @@ READ_ACTIONS = {'list', 'retrieve'}
 
 
 def _read_permissions():
+    """_read_permissions helper."""
     return [IsAuthenticated(), IsTenantMember()]
 
 
 def _write_permissions():
+    """_write_permissions helper."""
     return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
 
 
