@@ -105,6 +105,16 @@ class CommerceClient:
     def process_payment_event(self, payload: dict):
         return self._request("POST", "/integrations/payment-events/process/", json=payload)
 
+    def list_subscriptions(self, organization_id: str, product_id: str | None = None, status: str | None = None):
+        """Return subscriptions filtered by organization and optional product/status."""
+        params = {"organization_id": organization_id, "page_size": 100}
+        if product_id:
+            params["product"] = product_id
+        if status:
+            params["status"] = status
+        data = self._request("GET", "/subscriptions/", params=params)
+        return self._results(data)
+
 
 def _catalog_cache_key(product_code: str, plan_code: str) -> str:
     """_catalog_cache_key helper."""
@@ -141,6 +151,21 @@ def bootstrap_free_plan_for_org(organization_id: str, bearer_token: str):
 
     client = CommerceClient(bearer_token)
     ids = resolve_catalog_ids(client, product_code, free_plan_code)
+
+    # Avoid creating an additional free subscription when this organization
+    # already has an active package for the same product (e.g. premium).
+    active_subscriptions = client.list_subscriptions(
+        organization_id=organization_id,
+        product_id=ids["product_id"],
+        status="active",
+    )
+    if active_subscriptions:
+        logger.info(
+            "Skip free bootstrap for org=%s because active subscription already exists (count=%s).",
+            organization_id,
+            len(active_subscriptions),
+        )
+        return {"skipped": True, "reason": "active_subscription_exists", "active_count": len(active_subscriptions)}
 
     order = client.create_order(
         {
