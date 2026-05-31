@@ -21,11 +21,7 @@ class DeepSeekAdapter:
 
     def brainstorm_reply(self, messages, mode, llm_mode='chat_economy', llm_model=''):
         if not self.api_key:
-            return (
-                "Terima kasih, saya sudah menangkap kebutuhan Anda. "
-                "Kita lanjutkan diskusi requirement dulu (target audiens, tujuan halaman, CTA, tone). "
-                "Jika sudah cukup, klik Generate untuk membuat draft terstruktur."
-            )
+            return "AI is not ready, please wait a moment and retry later."
 
         system_prompt = (
             "You are ArnaSite AI Copilot for business users (non-technical audience). "
