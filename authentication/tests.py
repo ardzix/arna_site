@@ -322,3 +322,49 @@ class PermissionTest(TestCase):
         req = MagicMock()
         req.user = object() # No tenant_schema
         self.assertFalse(perm.has_permission(req, MagicMock()))
+
+    def test_tenant_member_passes_on_same_org_even_if_schema_differs(self):
+        """Org-level membership should allow access across multiple tenants in one org."""
+        from authentication.permissions import IsTenantMember
+        from authentication.backends import SSOUser
+
+        perm = IsTenantMember()
+        req = MagicMock()
+        req.user = SSOUser(
+            user_id='u1',
+            email='user@arna.com',
+            org_id='org-1',
+            tenant_schema='stale_schema',
+            tenant_name='X',
+            roles=[],
+            permissions=[],
+            is_owner=False,
+        )
+
+        with patch('authentication.permissions.connection') as mock_conn:
+            mock_conn.tenant = MagicMock(schema_name='active_schema', sso_organization_id='org-1')
+            result = perm.has_permission(req, MagicMock())
+        self.assertTrue(result)
+
+    def test_tenant_member_fails_on_different_org(self):
+        """Org mismatch must still be denied."""
+        from authentication.permissions import IsTenantMember
+        from authentication.backends import SSOUser
+
+        perm = IsTenantMember()
+        req = MagicMock()
+        req.user = SSOUser(
+            user_id='u1',
+            email='user@arna.com',
+            org_id='org-1',
+            tenant_schema='active_schema',
+            tenant_name='X',
+            roles=[],
+            permissions=[],
+            is_owner=False,
+        )
+
+        with patch('authentication.permissions.connection') as mock_conn:
+            mock_conn.tenant = MagicMock(schema_name='active_schema', sso_organization_id='org-2')
+            result = perm.has_permission(req, MagicMock())
+        self.assertFalse(result)
