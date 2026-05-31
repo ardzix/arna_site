@@ -125,7 +125,15 @@ pipeline {
 
                         echo "[INFO] Deploying to Docker Swarm..."
                         ssh -i "\$SSH_KEY_FILE" -o StrictHostKeyChecking=no root@${VPS_HOST} <<'EOF'
-set -e
+set -euo pipefail
+
+on_fail() {
+  echo "[ERROR] Deploy failed. Dumping service diagnostics..."
+  docker service ls | grep -E 'NAME|arna_site' || true
+  docker service ps arna_site --no-trunc || true
+  docker service logs --tail 200 arna_site || true
+}
+trap on_fail ERR
 
 docker swarm init 2>/dev/null || true
 docker network create --driver overlay ${NETWORK_NAME} 2>/dev/null || true
@@ -133,30 +141,40 @@ docker network create --driver overlay ${NETWORK_NAME} 2>/dev/null || true
 docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}
 
 if docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
-    echo "[INFO] Service exists — recreating service to force env refresh from /root/${STACK_NAME}/.env ..."
-    docker service rm ${STACK_NAME}
-    # Wait until service is fully removed before re-create
-    for i in \$(seq 1 30); do
-        if ! docker service ls --format '{{.Name}}' | grep -wq "${STACK_NAME}"; then
-            break
-        fi
-        sleep 1
-    done
+    echo "[INFO] Service exists — rolling update (no service deletion)..."
+    docker service update \\
+        --image ${DOCKER_IMAGE}:${DOCKER_TAG} \\
+        --with-registry-auth \\
+        --update-delay 10s \\
+        --update-order start-first \\
+        --update-failure-action rollback \\
+        --restart-condition any \\
+        --restart-max-attempts 0 \\
+        --log-driver json-file \\
+        --log-opt max-size=50m \\
+        --log-opt max-file=5 \\
+        --detach=false \\
+        ${STACK_NAME}
+else
+    echo "[INFO] Service missing — creating service..."
+    docker service create \\
+        --name ${STACK_NAME} \\
+        --replicas ${REPLICAS} \\
+        --network ${NETWORK_NAME} \\
+        --env-file /root/${STACK_NAME}/.env \\
+        --with-registry-auth \\
+        --update-delay 10s \\
+        --update-order start-first \\
+        --update-failure-action rollback \\
+        --restart-condition any \\
+        --restart-max-attempts 0 \\
+        --log-driver json-file \\
+        --log-opt max-size=50m \\
+        --log-opt max-file=5 \\
+        ${DOCKER_IMAGE}:${DOCKER_TAG}
 fi
 
-echo "[INFO] Creating service with latest image + env-file..."
-docker service create \\
-    --name ${STACK_NAME} \\
-    --replicas ${REPLICAS} \\
-    --network ${NETWORK_NAME} \\
-    --env-file /root/${STACK_NAME}/.env \\
-    --with-registry-auth \\
-    --update-delay 10s \\
-    --update-order start-first \\
-    --update-failure-action rollback \\
-    --restart-condition on-failure \\
-    --restart-max-attempts 3 \\
-    ${DOCKER_IMAGE}:${DOCKER_TAG}
+docker service ps ${STACK_NAME}
 
 echo "[INFO] Deploy success."
 EOF
@@ -175,7 +193,7 @@ EOF
             echo "Deployed ${DOCKER_IMAGE}:${DOCKER_TAG} successfully."
         }
         failure {
-            echo 'Pipeline failed. Check logs above.'
+            echo 'Pipeline failed. Diagnostics were printed from VPS deploy trap.'
         }
     }
 }
