@@ -43,6 +43,7 @@ from core.limits import (
     assert_max_websites,
     assert_max_templates,
     assert_custom_domain_enabled,
+    assert_template_manual_creation_enabled,
     LimitError,
 )
 
@@ -1207,6 +1208,7 @@ class TenantTemplateListCreateView(APIView):
         token = _extract_bearer(request)
         try:
             entitlements = fetch_runtime_entitlements(org_id, token)
+            assert_template_manual_creation_enabled(entitlements)
             current_templates = Template.objects.filter(
                 is_active=True,
                 source_tenant_schema=schema,

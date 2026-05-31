@@ -71,3 +71,71 @@ def assert_ai_monthly_calls(entitlements: dict, month_usage: int):
     limit = _to_int(entitlements.get("arnasite.ai_generator.monthly_calls"), 20)
     if limit > 0 and month_usage >= limit:
         raise LimitError(f"AI monthly quota reached ({month_usage}/{limit}).")
+
+
+def _to_bool(value, default=False):
+    """Safely coerce string-like entitlement values to booleans."""
+
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_premium_like(entitlements: dict):
+    """
+    Infer premium/enterprise capability from runtime entitlements.
+
+    Priority:
+    1) Explicit key `arnasite.premium.enabled` if present.
+    2) Custom domain enabled (premium feature).
+    3) `max_websites > 1` as fallback signal.
+    """
+
+    if "arnasite.premium.enabled" in entitlements:
+        return _to_bool(entitlements.get("arnasite.premium.enabled"), False)
+    custom_domain_enabled = _to_bool(entitlements.get("arnasite.custom_domain.enabled"), False)
+    if custom_domain_enabled:
+        return True
+    return _to_int(entitlements.get("arnasite.max_websites"), 1) > 1
+
+
+def assert_template_generation_enabled(entitlements: dict):
+    """
+    Ensure AI template generation is allowed for current package.
+
+    Explicit override key:
+    - `arnasite.ai.template_generation.enabled`
+    Fallback behavior:
+    - allow only premium-like packages.
+    """
+
+    if "arnasite.ai.template_generation.enabled" in entitlements:
+        enabled = _to_bool(entitlements.get("arnasite.ai.template_generation.enabled"), False)
+    else:
+        enabled = _is_premium_like(entitlements)
+    if not enabled:
+        raise LimitError(
+            "Your free package doesn't include template generation, please use available template or upgrade to premium."
+        )
+
+
+def assert_template_manual_creation_enabled(entitlements: dict):
+    """
+    Ensure manual template creation is allowed for current package.
+
+    Explicit override key:
+    - `arnasite.template.manual_creation.enabled`
+    Fallback behavior:
+    - allow only premium-like packages.
+    """
+
+    if "arnasite.template.manual_creation.enabled" in entitlements:
+        enabled = _to_bool(entitlements.get("arnasite.template.manual_creation.enabled"), False)
+    else:
+        enabled = _is_premium_like(entitlements)
+    if not enabled:
+        raise LimitError(
+            "Your free package doesn't include template creation, please use available template or upgrade to premium."
+        )

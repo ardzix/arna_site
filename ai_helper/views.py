@@ -16,7 +16,12 @@ from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOw
 from ai_helper.models import AICopilotSession, AIGenerationDraft, AIAsyncJob
 from core.models import Template
 from core.commerce import CommerceClientError
-from core.limits import fetch_runtime_entitlements, assert_ai_monthly_calls, LimitError
+from core.limits import (
+    fetch_runtime_entitlements,
+    assert_ai_monthly_calls,
+    assert_template_generation_enabled,
+    LimitError,
+)
 from ai_helper.serializers import (
     AICopilotSessionCreateSerializer,
     AICopilotSessionSerializer,
@@ -56,6 +61,40 @@ def _read_permissions():
 def _write_permissions():
     """_write_permissions helper."""
     return [IsAuthenticated(), IsTenantMember(), (IsTenantAdmin | IsTenantOwner)()]
+
+
+def _scope_context(request):
+    """Build tenant/org scope context for strict AI session isolation."""
+    tenant = getattr(connection, "tenant", None)
+    tenant_slug = str(getattr(tenant, "slug", "") or "")
+    organization_id = str(getattr(request.user, "org_id", "") or "")
+    return tenant_slug, organization_id
+
+
+def _scoped_session_queryset(request):
+    """Return AI sessions visible only to current tenant+organization scope."""
+    tenant_slug, organization_id = _scope_context(request)
+    return AICopilotSession.objects.filter(
+        tenant_slug=tenant_slug,
+        organization_id=organization_id,
+    )
+
+
+def _scoped_session_or_404(request, session_id):
+    """Resolve one scoped AI session or raise 404 outside current tenant+org scope."""
+    return get_object_or_404(_scoped_session_queryset(request), id=session_id)
+
+
+def _scoped_job_or_404(request, job_id):
+    """Resolve one async job whose parent session belongs to current tenant+org scope."""
+    tenant_slug, organization_id = _scope_context(request)
+    return get_object_or_404(
+        AIAsyncJob.objects.select_related("session").filter(
+            session__tenant_slug=tenant_slug,
+            session__organization_id=organization_id,
+        ),
+        id=job_id,
+    )
 
 
 class AISessionListCreateView(APIView):
@@ -121,7 +160,7 @@ class AISessionListCreateView(APIView):
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
 
-        qs = AICopilotSession.objects.order_by('-created_at')
+        qs = _scoped_session_queryset(request).order_by('-created_at')
         total = qs.count()
         sessions = qs[offset:offset + limit]
         items = AICopilotSessionListSerializer(sessions, many=True).data
@@ -173,6 +212,8 @@ class AISessionListCreateView(APIView):
             metadata=serializer.validated_data.get('metadata', {}),
             created_by_user_id=str(getattr(user, 'id', '')),
             created_by_email=getattr(user, 'email', ''),
+            tenant_slug=str(getattr(connection.tenant, "slug", "") or ""),
+            organization_id=str(getattr(user, "org_id", "") or ""),
         )
         return Response(AICopilotSessionListSerializer(session).data, status=201)
 
@@ -194,7 +235,7 @@ class AISessionDetailView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         return Response(AICopilotSessionSerializer(session).data)
 
 
@@ -264,7 +305,9 @@ class AITemplateOptionListView(APIView):
             for t in published
         ]
 
+        scoped_sessions = _scoped_session_queryset(request)
         drafts_qs = AIGenerationDraft.objects.filter(
+            session__in=scoped_sessions,
             draft_type=AIGenerationDraft.TYPE_TEMPLATE
         ).select_related('session')
         if selected_only:
@@ -331,7 +374,7 @@ class AISessionMessageCreateView(APIView):
         security=[{'Bearer': []}],
     )
     def post(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         serializer = AICopilotMessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -414,14 +457,16 @@ class AISessionGenerateView(APIView):
         security=[{'Bearer': []}],
     )
     def post(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         req = AIGenerateRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
         token = auth_header.split(" ", 1)[1] if auth_header.startswith("Bearer ") else ""
         org_id = str(getattr(request.user, "org_id", "") or "")
         now = timezone.now()
+        scoped_sessions = _scoped_session_queryset(request)
         month_usage = AIAsyncJob.objects.filter(
+            session__in=scoped_sessions,
             operation=AIAsyncJob.OP_GENERATE,
             created_at__year=now.year,
             created_at__month=now.month,
@@ -429,6 +474,8 @@ class AISessionGenerateView(APIView):
         try:
             entitlements = fetch_runtime_entitlements(org_id, token)
             assert_ai_monthly_calls(entitlements, month_usage)
+            if session.mode == AICopilotSession.MODE_TEMPLATE:
+                assert_template_generation_enabled(entitlements)
         except CommerceClientError as exc:
             return Response({"error": f"Failed reading package entitlements: {exc}"}, status=502)
         except LimitError as exc:
@@ -492,7 +539,7 @@ class AISessionDraftListView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         drafts = AIGenerationDraft.objects.filter(session=session)
         return Response(AIGenerationDraftSerializer(drafts, many=True).data)
 
@@ -527,7 +574,7 @@ class AISessionPublishView(APIView):
         security=[{'Bearer': []}],
     )
     def post(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         req = AIPublishRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
 
@@ -604,7 +651,7 @@ class AISessionFEGuideView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         draft = AIGenerationDraft.objects.filter(
             session=session,
             draft_type=AIGenerationDraft.TYPE_FE_GUIDE,
@@ -645,7 +692,7 @@ class AIJobStatusView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, job_id):
-        job = get_object_or_404(AIAsyncJob, id=job_id)
+        job = _scoped_job_or_404(request, job_id)
         return Response(AIAsyncJobSerializer(job).data)
 
 
@@ -665,7 +712,7 @@ class AISessionTemplateDraftView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         draft = AIGenerationDraft.objects.filter(
             session=session,
             draft_type=AIGenerationDraft.TYPE_TEMPLATE,
@@ -695,7 +742,7 @@ class AISessionSiteContentDraftView(APIView):
         security=[{'Bearer': []}],
     )
     def get(self, request, session_id):
-        session = get_object_or_404(AICopilotSession, id=session_id)
+        session = _scoped_session_or_404(request, session_id)
         draft = AIGenerationDraft.objects.filter(
             session=session,
             draft_type=AIGenerationDraft.TYPE_SITE_CONTENT,

@@ -5,7 +5,7 @@ from django.db import models
 
 
 class AICopilotSession(models.Model):
-    """AICopilotSession class."""
+    """Tenant-scoped AI Copilot session."""
     MODE_TEMPLATE = 'template'
     MODE_SITE = 'site'
     MODE_CHOICES = [
@@ -39,6 +39,8 @@ class AICopilotSession(models.Model):
     title = models.CharField(max_length=255, blank=True)
     created_by_user_id = models.CharField(max_length=64)
     created_by_email = models.CharField(max_length=255, blank=True)
+    tenant_slug = models.CharField(max_length=100, db_index=True, blank=True, default='')
+    organization_id = models.CharField(max_length=64, db_index=True, blank=True, default='')
     selected_template_id = models.UUIDField(null=True, blank=True)
     context_summary = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
