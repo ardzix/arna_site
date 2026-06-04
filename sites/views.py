@@ -29,6 +29,20 @@ from sites.serializers import (
 WRITE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
 
 
+def _current_tenant_id():
+    from django.db import connection
+    tenant = getattr(connection, "tenant", None)
+    return getattr(tenant, "id", None)
+
+
+def _tenant_pages():
+    return Page.objects.filter(tenant_id=_current_tenant_id())
+
+
+def _tenant_sections():
+    return Section.objects.filter(tenant_id=_current_tenant_id())
+
+
 def _read_perms():
     """_read_perms helper."""
     return [IsAuthenticated(), IsTenantMember()]
@@ -144,12 +158,12 @@ class PublicSiteView(APIView):
 
         if slug:
             page = get_object_or_404(
-                Page.objects.prefetch_related("sections__blocks__items"),
+                _tenant_pages().prefetch_related("sections__blocks__items"),
                 slug=slug, is_active=True,
             )
             return Response(PageDetailSerializer(page).data)
 
-        pages = Page.objects.filter(is_active=True).order_by("order", "title")
+        pages = _tenant_pages().filter(is_active=True).order_by("order", "title")
         return Response({
             "tenant": {"name": tenant.name, "slug": tenant.slug},
             "pages":  PageSerializer(pages, many=True).data,
@@ -216,7 +230,7 @@ class PageListCreateView(ListCreateAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        return Page.objects.all()
+        return _tenant_pages()
 
     def get_serializer_class(self):
         return PageSerializer
@@ -229,7 +243,7 @@ class PageListCreateView(ListCreateAPIView):
         org_id = str(getattr(self.request.user, "org_id", "") or "")
         try:
             entitlements = fetch_runtime_entitlements(org_id, token)
-            current_pages = Page.objects.filter(is_active=True).count()
+            current_pages = _tenant_pages().filter(is_active=True).count()
             assert_max_pages_per_template(entitlements, current_pages)
         except CommerceClientError as exc:
             from rest_framework.exceptions import APIException
@@ -239,7 +253,7 @@ class PageListCreateView(ListCreateAPIView):
         except LimitError as exc:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied(str(exc))
-        serializer.save()
+        serializer.save(tenant_id=_current_tenant_id())
 
 
 class PageDetailView(RetrieveUpdateDestroyAPIView):
@@ -260,7 +274,7 @@ class PageDetailView(RetrieveUpdateDestroyAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        return Page.objects.prefetch_related("sections__blocks__items")
+        return _tenant_pages().prefetch_related("sections__blocks__items")
 
     def get_serializer_class(self):
         if self.request.method == 'GET':
@@ -281,7 +295,7 @@ class PageReorderView(APIView):
                          operation_summary='Reorder pages',
                          security=[{'Bearer': []}])
     def patch(self, request):
-        return _do_reorder(Page, request.data)
+        return _do_scoped_reorder(_tenant_pages(), request.data)
 
 
 # ─── Sections (nested under Page) ─────────────────────────────────────────────
@@ -302,12 +316,12 @@ class SectionListCreateView(ListCreateAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        get_object_or_404(Page, pk=self.kwargs['page_id'])
-        return Section.objects.filter(page_id=self.kwargs['page_id'])
+        get_object_or_404(_tenant_pages(), pk=self.kwargs['page_id'])
+        return _tenant_sections().filter(page_id=self.kwargs['page_id'])
 
     def perform_create(self, serializer):
-        page = get_object_or_404(Page, pk=self.kwargs['page_id'])
-        serializer.save(page=page)
+        page = get_object_or_404(_tenant_pages(), pk=self.kwargs['page_id'])
+        serializer.save(page=page, tenant_id=_current_tenant_id())
 
 
 class SectionDetailView(RetrieveUpdateDestroyAPIView):
@@ -325,7 +339,7 @@ class SectionDetailView(RetrieveUpdateDestroyAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        return Section.objects.filter(page_id=self.kwargs['page_id'])
+        return _tenant_sections().filter(page_id=self.kwargs['page_id'])
 
 
 class SectionReorderView(APIView):
@@ -339,9 +353,9 @@ class SectionReorderView(APIView):
                          operation_summary='Reorder sections',
                          security=[{'Bearer': []}])
     def patch(self, request, page_id):
-        get_object_or_404(Page, pk=page_id)
+        get_object_or_404(_tenant_pages(), pk=page_id)
         return _do_scoped_reorder(
-            Section.objects.filter(page_id=page_id),
+            _tenant_sections().filter(page_id=page_id),
             request.data,
         )
 
@@ -364,12 +378,12 @@ class BlockListCreateView(ListCreateAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        get_object_or_404(Section, pk=self.kwargs['section_id'],
+        get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'],
                           page_id=self.kwargs['page_id'])
         return ContentBlock.objects.filter(section_id=self.kwargs['section_id'])
 
     def perform_create(self, serializer):
-        section = get_object_or_404(Section, pk=self.kwargs['section_id'],
+        section = get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'],
                                     page_id=self.kwargs['page_id'])
         serializer.save(section=section)
 
@@ -389,6 +403,7 @@ class BlockDetailView(RetrieveUpdateDestroyAPIView):
         return _read_perms()
 
     def get_queryset(self):
+        get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'], page_id=self.kwargs['page_id'])
         return ContentBlock.objects.filter(section_id=self.kwargs['section_id'])
 
 
@@ -410,11 +425,12 @@ class ItemListCreateView(ListCreateAPIView):
         return _read_perms()
 
     def get_queryset(self):
-        get_object_or_404(ContentBlock, pk=self.kwargs['block_id'],
-                          section_id=self.kwargs['section_id'])
+        get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'], page_id=self.kwargs['page_id'])
+        get_object_or_404(ContentBlock, pk=self.kwargs['block_id'], section_id=self.kwargs['section_id'])
         return ListItem.objects.filter(block_id=self.kwargs['block_id'])
 
     def perform_create(self, serializer):
+        get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'], page_id=self.kwargs['page_id'])
         block = get_object_or_404(ContentBlock, pk=self.kwargs['block_id'],
                                   section_id=self.kwargs['section_id'])
         serializer.save(block=block)
@@ -436,4 +452,6 @@ class ItemDetailView(RetrieveUpdateDestroyAPIView):
         return _read_perms()
 
     def get_queryset(self):
+        get_object_or_404(_tenant_sections(), pk=self.kwargs['section_id'], page_id=self.kwargs['page_id'])
+        get_object_or_404(ContentBlock, pk=self.kwargs['block_id'], section_id=self.kwargs['section_id'])
         return ListItem.objects.filter(block_id=self.kwargs['block_id'])

@@ -11,8 +11,9 @@ class Page(models.Model):
     Setiap halaman memiliki sekumpulan Section yang membentuk kontennya.
     """
     id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id    = models.UUIDField(null=True, blank=True, db_index=True)
     title        = models.CharField(max_length=255)
-    slug         = models.SlugField(max_length=255, unique=True)
+    slug         = models.SlugField(max_length=255)
     is_home      = models.BooleanField(default=False,
                        help_text="Tandai sebagai halaman utama (homepage). Hanya satu per tenant.")
     is_active    = models.BooleanField(default=True)
@@ -29,6 +30,10 @@ class Page(models.Model):
 
     class Meta:
         ordering = ["order", "title"]
+        indexes = [
+            models.Index(fields=["tenant_id", "slug"]),
+            models.Index(fields=["tenant_id", "is_active"]),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -42,6 +47,7 @@ class Page(models.Model):
 class Section(models.Model):
     """Section class."""
     id       = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant_id = models.UUIDField(null=True, blank=True, db_index=True)
     page     = models.ForeignKey(Page, on_delete=models.CASCADE,
                                  related_name="sections", null=True, blank=True)
     type     = models.CharField(max_length=100)

@@ -16,6 +16,12 @@ from core.models import Template, TemplatePage, TemplateSection, TemplateBlock, 
 from sites.models import Page, Section, ContentBlock, ListItem
 
 
+def _current_tenant_id():
+    from django.db import connection
+    tenant = getattr(connection, "tenant", None)
+    return getattr(tenant, "id", None)
+
+
 class CopilotServiceError(Exception):
     """Raised for controlled AI helper service errors exposed to API clients."""
     pass
@@ -260,14 +266,16 @@ def publish_site_content_from_draft(session: AICopilotSession, site_content_draf
     validate_payload('site-content.schema.json', payload)
 
     with transaction.atomic():
+        tenant_id = _current_tenant_id()
         if overwrite:
-            Page.objects.all().delete()
-            Section.objects.all().delete()
-        elif Page.objects.exists() or Section.objects.exists():
+            Page.objects.filter(tenant_id=tenant_id).delete()
+            Section.objects.filter(tenant_id=tenant_id).delete()
+        elif Page.objects.filter(tenant_id=tenant_id).exists() or Section.objects.filter(tenant_id=tenant_id).exists():
             raise CopilotServiceError('Site content already exists. Pass overwrite=true to replace.')
 
         for idx, p in enumerate(payload['pages'], start=1):
             page = Page.objects.create(
+                tenant_id=tenant_id,
                 title=p['title'],
                 slug=p['slug'],
                 is_home=p['is_home'],
@@ -279,6 +287,7 @@ def publish_site_content_from_draft(session: AICopilotSession, site_content_draf
 
             for s in p['sections']:
                 section = Section.objects.create(
+                    tenant_id=tenant_id,
                     page=page,
                     type=s['type'],
                     order=s['order'],
