@@ -1,25 +1,177 @@
 """Module for authentication.tests."""
+import json
 import os
 
 import uuid
 import tempfile
+from io import BytesIO
+from urllib.error import HTTPError, URLError
 from unittest.mock import patch, MagicMock
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.conf import settings
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.test import APIRequestFactory
 
 from authentication.jwt_backends import ArnaJWTAuthentication
 from authentication.permissions import IsTenantAdmin, IsTenantOwner
 from authentication.backends import SSOUser
+from authentication.sso_bridge_views import (
+    SSO_STATE_COOKIE,
+    SSO_VERIFIER_COOKIE,
+    SSOBridgeBeginView,
+    SSOBridgeCallbackView,
+)
 from authentication.test_helpers import generate_rsa_keypair, make_jwt
 
 
 
 
+class SSOBridgeTest(SimpleTestCase):
+    """Tests for public SSO authorization-code bridge endpoints."""
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.begin_view = SSOBridgeBeginView.as_view()
+        self.callback_view = SSOBridgeCallbackView.as_view()
+
+    @patch("authentication.sso_bridge_views.secrets.token_urlsafe")
+    def test_begin_sets_pkce_cookies_and_redirect(self, token_urlsafe):
+        token_urlsafe.side_effect = ["state-1", "verifier-1"]
+
+        with self.settings(
+            ROOT_URLCONF="config.public_urls",
+            ARNA_SSO_WEB_BASE_URL="https://sso.arnatech.id",
+            SSO_BRIDGE_CLIENT_ID="arna-site",
+            SSO_BRIDGE_REDIRECT_URI="https://www.bisnisnaikkelas.com/auth/callback",
+            SSO_BRIDGE_COOKIE_SECURE=True,
+            SSO_BRIDGE_COOKIE_SAMESITE="None",
+        ):
+            request = self.factory.post("/auth/sso/bridge/begin/", {}, format="json")
+            response = self.begin_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["redirect_url"].startswith("https://sso.arnatech.id/login?"))
+        self.assertIn("client_id=arna-site", response.data["redirect_url"])
+        self.assertIn("code_challenge_method=S256", response.data["redirect_url"])
+        self.assertIn(SSO_STATE_COOKIE, response.cookies)
+        self.assertIn(SSO_VERIFIER_COOKIE, response.cookies)
+        self.assertTrue(response.cookies[SSO_STATE_COOKIE]["httponly"])
+        self.assertEqual(response.cookies[SSO_STATE_COOKIE]["samesite"], "None")
+
+    def test_callback_rejects_bad_state(self):
+        request = self.factory.post(
+            "/auth/sso/bridge/callback/",
+            {"code": "code-1", "state": "wrong"},
+            format="json",
+        )
+        request.COOKIES[SSO_STATE_COOKIE] = "expected"
+        request.COOKIES[SSO_VERIFIER_COOKIE] = "verifier"
+
+        with self.settings(ROOT_URLCONF="config.public_urls"):
+            response = self.callback_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("state", response.data["detail"].lower())
+
+    def test_callback_exchanges_code(self):
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def read(self):
+                return json.dumps({"access": "access-token", "refresh": "refresh-token"}).encode()
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["body"] = json.loads(request.data.decode())
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        request = self.factory.post(
+            "/auth/sso/bridge/callback/",
+            {"code": "code-1", "state": "expected"},
+            format="json",
+        )
+        request.COOKIES[SSO_STATE_COOKIE] = "expected"
+        request.COOKIES[SSO_VERIFIER_COOKIE] = "verifier-1"
+
+        with self.settings(
+            ROOT_URLCONF="config.public_urls",
+            ARNA_SSO_BASE_URL="https://sso.arnatech.id/api",
+            SSO_BRIDGE_CLIENT_ID="arna-site",
+            SSO_BRIDGE_REDIRECT_URI="https://www.bisnisnaikkelas.com/auth/callback",
+            SSO_BRIDGE_TOKEN_EXCHANGE_TIMEOUT=7,
+        ), patch("authentication.sso_bridge_views.urlopen", fake_urlopen):
+            response = self.callback_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"access": "access-token", "refresh": "refresh-token"})
+        self.assertEqual(captured["url"], "https://sso.arnatech.id/api/auth/sso/token/")
+        self.assertEqual(
+            captured["body"],
+            {
+                "grant_type": "authorization_code",
+                "client_id": "arna-site",
+                "redirect_uri": "https://www.bisnisnaikkelas.com/auth/callback",
+                "code": "code-1",
+                "code_verifier": "verifier-1",
+            },
+        )
+        self.assertEqual(captured["timeout"], 7)
+
+    def test_callback_returns_sso_http_error(self):
+        def fake_urlopen(request, timeout):
+            raise HTTPError(request.full_url, 400, "bad request", {}, BytesIO(b"invalid code"))
+
+        request = self.factory.post(
+            "/auth/sso/bridge/callback/",
+            {"code": "code-1", "state": "expected"},
+            format="json",
+        )
+        request.COOKIES[SSO_STATE_COOKIE] = "expected"
+        request.COOKIES[SSO_VERIFIER_COOKIE] = "verifier-1"
+
+        with self.settings(ROOT_URLCONF="config.public_urls"), patch(
+            "authentication.sso_bridge_views.urlopen",
+            fake_urlopen,
+        ):
+            response = self.callback_view(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "invalid code")
+
+    def test_callback_returns_bad_gateway_on_transport_error(self):
+        def fake_urlopen(request, timeout):
+            raise URLError("dns failed")
+
+        request = self.factory.post(
+            "/auth/sso/bridge/callback/",
+            {"code": "code-1", "state": "expected"},
+            format="json",
+        )
+        request.COOKIES[SSO_STATE_COOKIE] = "expected"
+        request.COOKIES[SSO_VERIFIER_COOKIE] = "verifier-1"
+
+        with self.settings(ROOT_URLCONF="config.public_urls"), patch(
+            "authentication.sso_bridge_views.urlopen",
+            fake_urlopen,
+        ):
+            response = self.callback_view(request)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("SSO token exchange failed", response.data["detail"])
+
+
 class ArnaJWTAuthenticationTest(TestCase):
-    @classmethod
     """ArnaJWTAuthenticationTest class."""
+
+    @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.private_pem, cls.public_pem = generate_rsa_keypair()

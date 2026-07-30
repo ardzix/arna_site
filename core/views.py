@@ -5,10 +5,10 @@ import uuid
 import logging
 import requests as http
 from django.conf import settings
+from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.core.cache import cache
-from django.utils import timezone
 from django_tenants.utils import schema_context
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.views import APIView
@@ -841,6 +841,21 @@ class TenantPremiumCheckoutView(APIView):
         client = CommerceClient(token)
         try:
             ids = resolve_catalog_ids(client, product_code, premium_plan_code)
+            active_subscriptions = client.list_subscriptions(
+                organization_id=org_id,
+                product_id=ids["product_id"],
+                status="active",
+            )
+            today = timezone.localdate().isoformat()
+            has_live_subscription = any(
+                not subscription.get("end_date") or subscription["end_date"] >= today
+                for subscription in active_subscriptions
+            )
+            if has_live_subscription:
+                return Response(
+                    {"error": "Your Premium subscription is already active. Manage your current package instead of starting another checkout."},
+                    status=409,
+                )
             order = client.create_order(
                 {
                     "organization_id": org_id,

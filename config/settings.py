@@ -129,6 +129,19 @@ ARNA_COMMERCE_FREE_PAYMENT_METHOD = os.getenv('ARNA_COMMERCE_FREE_PAYMENT_METHOD
 ARNA_COMMERCE_PREMIUM_PAYMENT_METHOD = os.getenv('ARNA_COMMERCE_PREMIUM_PAYMENT_METHOD', 'pg')
 # Arna SSO integration
 ARNA_SSO_BASE_URL = os.getenv('ARNA_SSO_BASE_URL', 'https://sso.arnatech.id/api')
+ARNA_SSO_WEB_BASE_URL = os.getenv(
+    'ARNA_SSO_WEB_BASE_URL',
+    ARNA_SSO_BASE_URL[:-4] if ARNA_SSO_BASE_URL.endswith('/api') else ARNA_SSO_BASE_URL,
+)
+SSO_BRIDGE_CLIENT_ID = os.getenv('SSO_BRIDGE_CLIENT_ID', 'arna-site')
+SSO_BRIDGE_REDIRECT_URI = os.getenv(
+    'SSO_BRIDGE_REDIRECT_URI',
+    'https://www.bisnisnaikkelas.com/auth/callback',
+)
+SSO_BRIDGE_COOKIE_MAX_AGE = int(os.getenv('SSO_BRIDGE_COOKIE_MAX_AGE', '300'))
+SSO_BRIDGE_COOKIE_SECURE = os.getenv('SSO_BRIDGE_COOKIE_SECURE', 'True').lower() in ('true', '1', 'yes')
+SSO_BRIDGE_COOKIE_SAMESITE = os.getenv('SSO_BRIDGE_COOKIE_SAMESITE', 'None')
+SSO_BRIDGE_TOKEN_EXCHANGE_TIMEOUT = int(os.getenv('SSO_BRIDGE_TOKEN_EXCHANGE_TIMEOUT', '10'))
 SSO_IAM_PROVISION_ON_REGISTER = os.getenv(
     'SSO_IAM_PROVISION_ON_REGISTER', 'True'
 ).lower() in ('true', '1', 'yes')

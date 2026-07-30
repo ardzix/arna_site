@@ -27,6 +27,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path("auth/", include("authentication.urls")),
     path("tenants/register/", include("core.register_urls")),
     path("tenants/", include("core.public_tenant_urls")),
     path("templates/", include("core.urls")),
