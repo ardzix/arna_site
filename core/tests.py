@@ -265,6 +265,39 @@ class TenantRegistrationAudienceTest(TestCase):
             )
         self.assertEqual(response.status_code, 401)
 
+    def test_register_returns_public_uuid_tenant_id(self):
+        org_id = uuid.uuid4()
+        token = make_jwt(
+            self.private_pem,
+            uuid.uuid4(),
+            org_id,
+            is_owner=True,
+            aud="arnasite",
+        )
+
+        with (
+            override_settings(
+                SSO_JWT_PUBLIC_KEY_PATH=self.key_file.name,
+                SSO_JWT_AUDIENCE="arnasite",
+                ARNA_COMMERCE_BOOTSTRAP_FREE_ON_REGISTER=False,
+            ),
+            patch(
+                "core.views.TenantRegisterView._provision_sso_iam",
+                return_value={"ok": True, "skipped": True},
+            ),
+        ):
+            response = self.client.post(
+                "/tenants/register/",
+                {"name": "UUID Tenant", "slug": "uuid-tenant"},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["tenant"]
+        tenant = Tenant.objects.get(pk=payload["id"])
+        self.assertEqual(payload["tenant_id"], str(tenant.public_id))
+
 
 class TenantPublicIdentityTest(TestCase):
     """Keep ArnaSite's public tenant contract independent of its DB primary key."""

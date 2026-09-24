@@ -601,6 +601,8 @@ class TenantRegisterView(APIView):
 
         return Response({
             "tenant": {
+                "id": tenant.id,
+                "tenant_id": str(tenant.public_id),
                 "name": tenant.name,
                 "slug": tenant.slug,
                 "schema_name": tenant.schema_name,
