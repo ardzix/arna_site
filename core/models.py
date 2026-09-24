@@ -29,6 +29,9 @@ class Tenant(TenantMixin):
 
     # Override TenantMixin field to allow multiple tenant rows reusing one shared schema.
     schema_name = models.CharField(max_length=63, db_index=True)
+    # Stable cross-service identity. `id` remains the legacy database primary
+    # key and must never be used as a public tenant identifier.
+    public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
     sso_organization_id = models.CharField(max_length=255, db_index=True)
     name      = models.CharField(max_length=255)
     slug      = models.SlugField(unique=True)

@@ -47,13 +47,16 @@ class DomainSerializer(serializers.ModelSerializer):
 class TenantSerializer(serializers.ModelSerializer):
     """TenantSerializer class."""
     domains = DomainSerializer(many=True, read_only=True)
+    # `tenant_id` is the immutable UUID contract for SSO and other Arnatech
+    # services. Keep the numeric `id` temporarily for legacy API consumers.
+    tenant_id = serializers.UUIDField(source='public_id', read_only=True)
 
     class Meta:
         model = Tenant
-        fields = ['id', 'name', 'slug', 'schema_name', 'sso_organization_id',
+        fields = ['id', 'tenant_id', 'name', 'slug', 'schema_name', 'sso_organization_id',
                   'plan', 'tenancy_mode', 'shared_pool_key',
                   'is_active', 'created_on', 'domains']
-        read_only_fields = ['id', 'slug', 'schema_name', 'sso_organization_id',
+        read_only_fields = ['id', 'tenant_id', 'slug', 'schema_name', 'sso_organization_id',
                             'plan', 'tenancy_mode', 'shared_pool_key',
                             'is_active', 'created_on', 'domains']
 

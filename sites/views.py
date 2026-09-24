@@ -32,7 +32,7 @@ WRITE_METHODS = {'POST', 'PUT', 'PATCH', 'DELETE'}
 def _current_tenant_id():
     from django.db import connection
     tenant = getattr(connection, "tenant", None)
-    return getattr(tenant, "id", None)
+    return getattr(tenant, "public_id", None)
 
 
 def _tenant_pages():

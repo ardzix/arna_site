@@ -601,6 +601,8 @@ class TenantRegisterView(APIView):
 
         return Response({
             "tenant": {
+                "id": tenant.id,
+                "tenant_id": str(tenant.public_id),
                 "name": tenant.name,
                 "slug": tenant.slug,
                 "schema_name": tenant.schema_name,
@@ -642,7 +644,8 @@ class TenantMyListView(APIView):
                         'count': 1,
                         'results': [
                             {
-                                'id': 'uuid',
+                                'id': 37,
+                                'tenant_id': '11111111-1111-1111-1111-111111111111',
                                 'name': 'Nusa Prima',
                                 'slug': 'nusa-prima',
                                 'schema_name': 'nusa_prima',

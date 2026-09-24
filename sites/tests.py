@@ -33,7 +33,13 @@ class SitesCRUDTest(TestCase):
         self.patcher.start()
         from django.db import connection
         connection.set_tenant(self.tenant)
-        self.page = Page.objects.create(title="Home", slug="home", order=1, is_home=True)
+        self.page = Page.objects.create(
+            tenant_id=self.tenant.public_id,
+            title="Home",
+            slug="home",
+            order=1,
+            is_home=True,
+        )
         connection.set_schema_to_public()
 
     def tearDown(self):

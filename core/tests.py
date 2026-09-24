@@ -8,6 +8,7 @@ from unittest.mock import patch
 import uuid
 
 from core.models import Tenant, Domain, Template, TemplateSection, TemplateBlock
+from core.serializers import TenantSerializer
 from authentication.test_helpers import generate_rsa_keypair, make_jwt
 from authentication.jwt_backends import ArnaJWTAuthentication
 from sites.models import Section, ContentBlock
@@ -100,7 +101,9 @@ class E2EApplyTemplateTest(TestCase):
         from django.db import connection
         connection.set_tenant(self.test_tenant)
         self.assertTrue(
-            Section.objects.filter(type="hero").exists(),
+            Section.objects.filter(
+                type="hero", tenant_id=self.test_tenant.public_id
+            ).exists(),
             "Section was not cloned into tenant schema"
         )
         self.assertTrue(
@@ -221,8 +224,9 @@ class PublicTemplateVisibilityTest(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['*'], ROOT_URLCONF='config.public_urls')
 class TenantRegistrationAudienceTest(TestCase):
-    @classmethod
     """TenantRegistrationAudienceTest class."""
+
+    @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.private_pem, cls.public_pem = generate_rsa_keypair()
@@ -260,6 +264,61 @@ class TenantRegistrationAudienceTest(TestCase):
                 content_type="application/json",
             )
         self.assertEqual(response.status_code, 401)
+
+    def test_register_returns_public_uuid_tenant_id(self):
+        org_id = uuid.uuid4()
+        token = make_jwt(
+            self.private_pem,
+            uuid.uuid4(),
+            org_id,
+            is_owner=True,
+            aud="arnasite",
+        )
+
+        with (
+            override_settings(
+                SSO_JWT_PUBLIC_KEY_PATH=self.key_file.name,
+                SSO_JWT_AUDIENCE="arnasite",
+                ARNA_COMMERCE_BOOTSTRAP_FREE_ON_REGISTER=False,
+            ),
+            patch(
+                "core.views.TenantRegisterView._provision_sso_iam",
+                return_value={"ok": True, "skipped": True},
+            ),
+        ):
+            response = self.client.post(
+                "/tenants/register/",
+                {"name": "UUID Tenant", "slug": "uuid-tenant"},
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["tenant"]
+        tenant = Tenant.objects.get(pk=payload["id"])
+        self.assertEqual(payload["tenant_id"], str(tenant.public_id))
+
+
+class TenantPublicIdentityTest(TestCase):
+    """Keep ArnaSite's public tenant contract independent of its DB primary key."""
+
+    def setUp(self):
+        from django.db import connection
+        connection.set_schema_to_public()
+        self.tenant = Tenant.objects.create(
+            schema_name="tenant_public_identity",
+            name="Public Identity Tenant",
+            slug="public-identity-tenant",
+            sso_organization_id=uuid.uuid4(),
+        )
+
+    def test_serializer_exposes_uuid_tenant_id_and_legacy_numeric_id(self):
+        data = TenantSerializer(self.tenant).data
+
+        self.assertIsInstance(data["id"], int)
+        self.assertEqual(data["id"], self.tenant.id)
+        self.assertEqual(data["tenant_id"], str(self.tenant.public_id))
+        self.assertNotEqual(data["tenant_id"], str(self.tenant.id))
 
 
 @override_settings(ALLOWED_HOSTS=['*'])

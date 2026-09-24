@@ -8,7 +8,7 @@ from sites.models import Page, Section, ContentBlock, ListItem
 def _current_tenant_id():
     from django.db import connection
     tenant = getattr(connection, "tenant", None)
-    return getattr(tenant, "id", None)
+    return getattr(tenant, "public_id", None)
 
 
 def apply_template(tenant_schema: str, template_id: str, overwrite: bool = False):

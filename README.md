@@ -301,6 +301,14 @@ GET  /api/public/site/{slug}/   Full page content (sections → blocks → items
 
 ## Tenant Onboarding
 
+### Cross-service tenant identity
+
+ArnaSite retains its numeric database primary key as a legacy implementation
+detail. Every API response also exposes immutable UUID `tenant_id`, sourced
+from `Tenant.public_id`. New Arnatech services, SSO device registrations, and
+shared-pool records must use this UUID together with `organization_id`; they
+must not use the numeric `id` returned for backward compatibility.
+
 **Via API (recommended):**
 
 ```bash
