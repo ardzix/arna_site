@@ -36,7 +36,7 @@ class Command(BaseCommand):
         connection.set_tenant(claim_tenant)
         unscoped_pages = Page.objects.filter(tenant_id__isnull=True).count()
         unscoped_sections = Section.objects.filter(tenant_id__isnull=True).count()
-        target_pages = Page.objects.filter(tenant_id=target_tenant.id).count()
+        target_pages = Page.objects.filter(tenant_id=target_tenant.public_id).count()
 
         self.stdout.write(
             f"schema={claim_tenant.schema_name} unscoped_pages={unscoped_pages} "
@@ -48,8 +48,8 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            Page.objects.filter(tenant_id__isnull=True).update(tenant_id=claim_tenant.id)
-            Section.objects.filter(tenant_id__isnull=True).update(tenant_id=claim_tenant.id)
+            Page.objects.filter(tenant_id__isnull=True).update(tenant_id=claim_tenant.public_id)
+            Section.objects.filter(tenant_id__isnull=True).update(tenant_id=claim_tenant.public_id)
 
         connection.set_tenant(target_tenant)
         apply_template(target_tenant.schema_name, template_id, overwrite=True)

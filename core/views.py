@@ -642,7 +642,8 @@ class TenantMyListView(APIView):
                         'count': 1,
                         'results': [
                             {
-                                'id': 'uuid',
+                                'id': 37,
+                                'tenant_id': '11111111-1111-1111-1111-111111111111',
                                 'name': 'Nusa Prima',
                                 'slug': 'nusa-prima',
                                 'schema_name': 'nusa_prima',
