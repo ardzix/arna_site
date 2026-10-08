@@ -5,6 +5,7 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from authentication.jwt_backends import ArnaJWTAuthentication
+from core.website_context import PublicWebsiteContextView
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -27,6 +28,7 @@ schema_view = get_schema_view(
 )
 
 urlpatterns = [
+    path("api/v1/website/context/", PublicWebsiteContextView.as_view(), name="public-website-context-v1"),
     path("auth/", include("authentication.urls")),
     path("tenants/register/", include("core.register_urls")),
     path("tenants/", include("core.public_tenant_urls")),
