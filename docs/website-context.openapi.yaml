@@ -1,0 +1,54 @@
+openapi: 3.0.3
+info:
+  title: ArnaSite Website Context
+  version: 1.0.0
+paths:
+  /api/v1/website/context/:
+    get:
+      operationId: resolveVerifiedWebsiteContext
+      description: Public routing metadata only; grants no customer identity or entitlement.
+      security: []
+      parameters:
+        - in: query
+          name: host
+          required: true
+          schema:
+            type: string
+            example: business.example.com
+      responses:
+        '200':
+          description: Active verified frontend domain and tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [host, origin, organization_id, tenant_id]
+                properties:
+                  host: {type: string}
+                  origin: {type: string, format: uri}
+                  organization_id: {type: string, format: uuid}
+                  tenant_id: {type: string, format: uuid}
+        '400':
+          description: Invalid exact hostname.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '404':
+          description: Unknown, pending, inactive or backend domain.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503':
+          description: Invalid organization or tenant public UUID.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error, detail, request_id]
+      properties:
+        error: {type: string}
+        detail: {type: string}
+        request_id: {type: string, format: uuid}
