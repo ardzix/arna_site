@@ -10,4 +10,4 @@ import django
 django.setup()
 from django.core.management import call_command
 call_command('check')
-call_command('test', 'core.test_commerce_bootstrap', 'core.test_release_health', 'storage.test_resource_tokens', verbosity=2)
+call_command('test', 'core.test_commerce_bootstrap', 'core.test_release_health', 'storage.test_resource_tokens', 'storage.test_media_isolation', verbosity=2)
