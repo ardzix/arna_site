@@ -105,6 +105,9 @@ class CommerceClient:
     def process_payment_event(self, payload: dict):
         return self._request("POST", "/integrations/payment-events/process/", json=payload)
 
+    def bootstrap_free_order(self, payload: dict):
+        return self._request("POST", "/orders/bootstrap-free/", json=payload)
+
     def list_subscriptions(self, organization_id: str, product_id: str | None = None, status: str | None = None):
         """Return subscriptions filtered by organization and optional product/status."""
         params = {"organization_id": organization_id, "page_size": 100}
@@ -147,53 +150,14 @@ def bootstrap_free_plan_for_org(organization_id: str, bearer_token: str):
     """
     product_code = getattr(settings, "ARNA_COMMERCE_PRODUCT_CODE", "arna-site")
     free_plan_code = getattr(settings, "ARNA_COMMERCE_FREE_PLAN_CODE", "arna-site-free")
-    payment_method = getattr(settings, "ARNA_COMMERCE_FREE_PAYMENT_METHOD", "invoice")
 
     client = CommerceClient(bearer_token)
     ids = resolve_catalog_ids(client, product_code, free_plan_code)
 
-    # Avoid creating an additional free subscription when this organization
-    # already has an active package for the same product (e.g. premium).
-    active_subscriptions = client.list_subscriptions(
-        organization_id=organization_id,
-        product_id=ids["product_id"],
-        status="active",
-    )
-    if active_subscriptions:
-        logger.info(
-            "Skip free bootstrap for org=%s because active subscription already exists (count=%s).",
-            organization_id,
-            len(active_subscriptions),
-        )
-        return {"skipped": True, "reason": "active_subscription_exists", "active_count": len(active_subscriptions)}
-
-    order = client.create_order(
-        {
-            "organization_id": organization_id,
-            "product": ids["product_id"],
-            "plan": ids["plan_id"],
-            "price": ids["price_id"],
-            "payment_method": payment_method,
-            "notes": "ArnaSite automatic free bootstrap",
-        }
-    )
-    submit = client.submit_order(order["id"])
-    invoice_number = ""
-    if isinstance(submit, dict):
-        invoice_number = ((submit.get("invoice") or {}).get("invoice_number") or "")
-    activation = {}
-    if invoice_number:
-        activation = client.process_payment_event(
-            {
-                "webhook_data": {
-                    "id": f"internal-free-{order['id']}",
-                    "external_id": invoice_number,
-                    "status": "PAID",
-                },
-                "metadata": {
-                    "xendit_event": "invoice.paid",
-                    "source": "arna_site_internal_bootstrap",
-                },
-            }
-        )
-    return {"order": order, "submit": submit, "activation": activation}
+    # Commerce owns zero-value settlement, legacy-checkout recovery, locking and
+    # idempotency. Never impersonate a payment-provider webhook with a human JWT.
+    return client.bootstrap_free_order({
+        "organization_id": organization_id,
+        "product": ids["product_id"], "plan": ids["plan_id"], "price": ids["price_id"],
+        "quantity": 1, "payment_method": "invoice",
+    })
