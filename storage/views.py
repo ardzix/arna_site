@@ -2,6 +2,7 @@
 import requests as http
 
 from django.conf import settings
+from django.db.models import Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -82,6 +83,25 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
     queryset = MediaReference.objects.all()
     serializer_class = MediaReferenceSerializer
 
+    def get_queryset(self):
+        tenant = getattr(self.request, 'tenant', None)
+        tenant_id = getattr(tenant, 'public_id', None)
+        if not tenant_id:
+            return super().get_queryset().none()
+        scope = Q(tenant_id=tenant_id)
+        # Legacy records have no discriminator. Only a dedicated schema with
+        # one registered tenant can safely retain its old NULL references.
+        if getattr(tenant, 'tenancy_mode', '') == 'dedicated':
+            from core.models import Tenant
+            schema = getattr(tenant, 'schema_name', '')
+            if schema not in ('', 'public', 'pool_shared') and Tenant.objects.filter(schema_name=schema).count() == 1:
+                scope |= Q(tenant_id__isnull=True)
+        return super().get_queryset().filter(scope)
+
+    def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError('Use init-upload to create a verified Storage media reference.')
+
     def get_permissions(self):
         if self.action in READ_ACTIONS:
             return _read_permissions()
@@ -121,7 +141,7 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
         - If identifier matches local MediaReference.id, use its file_id.
         - Otherwise treat identifier directly as File Manager file_id.
         """
-        ref = MediaReference.objects.filter(id=identifier).first()
+        ref = self.get_queryset().filter(id=identifier).first()
         if ref:
             return ref.file_id, ref
         return str(identifier), None
@@ -190,6 +210,7 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
 
         try:
             reference = MediaReference.objects.create(
+                tenant_id=request.tenant.public_id,
                 file_id=file_id,
                 url=file_url,
                 display_name=serializer.validated_data["filename"],
