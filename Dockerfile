@@ -24,10 +24,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY . /app
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Arna SSO RS256 public key — diinject oleh CI sebelum docker build
-# Lokal: letakkan public.pem di root project
-# SSO_JWT_PUBLIC_KEY_PATH=public.pem di .env (di-resolve relatif ke BASE_DIR=/app)
-COPY public.pem /app/public.pem
+# Complete production configuration and verification key are mounted at runtime.
+RUN python manage.py collectstatic --noinput
 
 EXPOSE 8001
 

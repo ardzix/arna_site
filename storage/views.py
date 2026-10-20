@@ -11,6 +11,7 @@ from drf_yasg import openapi
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
 from storage.models import MediaReference
+from storage.resource_tokens import storage_headers
 from storage.serializers import (
     MediaReferenceSerializer,
     StorageUploadRequestSerializer,
@@ -87,7 +88,7 @@ class MediaReferenceViewSet(viewsets.ModelViewSet):
         return _write_permissions()
 
     def _get_fm_headers(self, request):
-        return {"Authorization": request.META.get("HTTP_AUTHORIZATION", "")}
+        return storage_headers(request)
 
     def _proxy_to_fm(self, request, method, path, payload=None):
         headers = self._get_fm_headers(request)

@@ -3,7 +3,9 @@ import os
 
 from pathlib import Path
 from dotenv import load_dotenv
+from .runtime_env import load_runtime_env
 
+load_runtime_env()
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,6 +43,7 @@ TENANT_APPS = (
 INSTALLED_APPS = list(SHARED_APPS) + [app for app in TENANT_APPS if app not in SHARED_APPS]
 
 MIDDLEWARE = [
+    'core.health.ReleaseHealthMiddleware',
     'django_tenants.middleware.main.TenantMainMiddleware',  # MUST be first
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',

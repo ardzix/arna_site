@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+*.pem
+*.key
+*.private.*
+.release-private
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+release-*.txt
+*-source.tar
