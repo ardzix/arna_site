@@ -1,0 +1,155 @@
+name: Domain ownership candidate (synthetic and disposable PostgreSQL)
+on:
+  pull_request:
+    paths: ["core/**", "dev/domain-proof*", ".github/workflows/domain-proof-dev.yml"]
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DJANGO_SETTINGS_MODULE: core.domain_proof_test_settings
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Resource admission
+        run: |
+          python3 - <<'PY'
+          import os, shutil, time
+          def cpu():
+              return list(map(int, open("/proc/stat").readline().split()[1:]))
+          prev = cpu()
+          for n in range(4):
+              available = int(next(l.split()[1] for l in open("/proc/meminfo") if l.startswith("MemAvailable:"))) // 1024
+              current = cpu()
+              delta = sum(current) - sum(prev)
+              idle = sum(current[3:5]) - sum(prev[3:5])
+              usage = 100 * (1 - idle / delta) if delta else 0
+              print({"sample": n, "available_mib": available, "cpu": round(usage, 2)}, flush=True)
+              assert available >= 4096 and usage <= 60 and shutil.disk_usage(".").free >= 5 * 1024**3
+              prev = current
+              if n < 3: time.sleep(20)
+          PY
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.14"
+      - name: Frozen binary-only test dependencies
+        run: |
+          timeout 120s python -m pip install --only-binary=:all: --disable-pip-version-check -r dev/domain-proof-test-requirements.txt
+      - name: Verified baseline pure-Python django-tenants sdist (no version fallback)
+        run: |
+          timeout 30s python - <<'PY'
+          import hashlib, pathlib, urllib.request
+          url = "https://files.pythonhosted.org/packages/75/29/0a9d23094cfe35b6adfdee78182d2c4c83cfb32e9f80a55cee9158c413e9/django-tenants-3.6.1.tar.gz"
+          with urllib.request.urlopen(url, timeout=10) as response:
+              data = response.read(1024 * 1024)
+          assert hashlib.sha256(data).hexdigest() == "36052d5bfce8240afab062e2d33ffeb25e38fa57b2a2b003eacd7e8d60334d97"
+          pathlib.Path(".ci-django-tenants-3.6.1.tar.gz").write_bytes(data)
+          print("Official PyPI baseline artifact SHA256 verified.")
+          PY
+          timeout 45s python -m pip install --no-deps --no-build-isolation --no-index .ci-django-tenants-3.6.1.tar.gz
+      - name: Synthetic policy, transport, protected endpoint and context tests (no DB or network)
+        run: |
+          timeout 45s python - <<'PY'
+          import django, unittest
+          django.setup()
+          modules = ["core.test_domain_proof_policy", "core.test_vercel_proof_transport", "core.test_domain_proof_api", "core.test_website_context"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+          PY
+      - name: Syntax and migration-model drift (no DB connection)
+        run: |
+          timeout 30s python - <<'PY'
+          import ast, pathlib, django
+          for path in pathlib.Path("core").rglob("*.py"):
+              ast.parse(path.read_text(), filename=str(path))
+          django.setup()
+          from django.apps import apps
+          from django.db.migrations.loader import MigrationLoader
+          from django.db.migrations.state import ProjectState
+          from django.db.migrations.autodetector import MigrationAutodetector
+          loader = MigrationLoader(None, ignore_no_migrations=True)
+          changes = MigrationAutodetector(loader.project_state(), ProjectState.from_apps(apps)).changes(graph=loader.graph)
+          # Baseline already drifts on Tenant.schema_name; prove unchanged source,
+          # allow precisely that existing operation and reject all new drift.
+          baseline = pathlib.Path("dev/domain-proof-baseline-tenant.py.txt").read_text()
+          def tenant_ast(source):
+              return ast.dump(next(n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == "Tenant"), include_attributes=False)
+          assert tenant_ast(baseline) == tenant_ast(pathlib.Path("core/models.py").read_text())
+          operations = [op for migration in changes.get("core", []) for op in migration.operations]
+          from django.db.migrations.operations.fields import AlterField
+          assert len(operations) == 1 and isinstance(operations[0], AlterField)
+          op = operations[0]
+          assert (op.model_name, op.name) == ("tenant", "schema_name"), op
+          from core.models import Tenant
+          assert op.field.deconstruct()[1:] == Tenant._meta.get_field("schema_name").deconstruct()[1:]
+          print("Ownership migration-model state agrees; baseline Tenant.schema_name drift unchanged (explicit exception). No DB connection.")
+          PY
+
+      - name: Fresh resource admission before disposable PostgreSQL
+        run: |
+          python3 - <<'PY'
+          import os, shutil, time
+          def cpu():
+              return list(map(int, open("/proc/stat").readline().split()[1:]))
+          prev = cpu()
+          for n in range(4):
+              available = int(next(l.split()[1] for l in open("/proc/meminfo") if l.startswith("MemAvailable:"))) // 1024
+              current = cpu()
+              delta = sum(current) - sum(prev)
+              idle = sum(current[3:5]) - sum(prev[3:5])
+              usage = 100 * (1 - idle / delta) if delta else 0
+              print({"sample": n, "available_mib": available, "cpu": round(usage, 2)}, flush=True)
+              assert available >= 4096 and usage <= 60 and shutil.disk_usage(".").free >= 5 * 1024**3
+              prev = current
+              if n < 3: time.sleep(20)
+          PY
+      - name: Real PostgreSQL migrations, competing commits and rollback (owned disposable container)
+        env:
+          DOMAIN_PROOF_PG_BOUNDARY: disposable-github-job
+        run: |
+          set -euo pipefail
+          name="arna-proof-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          label="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker container inspect "$name" >/dev/null 2>&1; then
+            echo "Refusing an existing container name"; exit 1
+          fi
+          python - <<'PY'
+          import socket
+          with socket.socket() as s:
+              assert s.connect_ex(("127.0.0.1", 55432)) != 0, "Port already occupied"
+          PY
+          cleanup() {
+            code=$?
+            trap - EXIT
+            if docker container inspect "$name" >/dev/null 2>&1; then
+              owner=$(docker inspect --format '{{index .Config.Labels "com.arnatech.proof-ci"}}' "$name")
+              if [ "$owner" != "$label" ]; then echo "Cleanup ownership mismatch"; exit 1; fi
+              docker rm --force "$name" >/dev/null || code=1
+            fi
+            if docker container inspect "$name" >/dev/null 2>&1; then echo "Container remains"; exit 1; fi
+            python - <<'PY' || code=1
+          import socket, json
+          with socket.socket() as s:
+              assert s.connect_ex(("127.0.0.1", 55432)) != 0
+          print(json.dumps({"cleanup": {"owned_container_absent": True, "loopback_port_closed": True,
+                                       "data": "tmpfs removed with container; no host mounts/volumes"}}))
+          PY
+            exit "$code"
+          }
+          trap cleanup EXIT
+          timeout 90s docker pull postgres:16.13
+          docker image inspect postgres:16.13 --format '{{index .RepoDigests 0}}'
+          image=$(docker image inspect postgres:16.13 --format '{{.Id}}')
+          timeout 20s docker run --detach --name "$name" --label "com.arnatech.proof-ci=$label" \
+            --memory=384m --cpus=0.5 --pids-limit=64 \
+            --publish 127.0.0.1:55432:5432 \
+            --tmpfs /var/lib/postgresql/data:rw,size=128m \
+            --env POSTGRES_DB=domain_proof_ci --env POSTGRES_USER=proof_ci \
+            --env POSTGRES_PASSWORD=synthetic-ci-only \
+            "$image" postgres -c max_connections=16 -c shared_buffers=32MB -c fsync=on -c synchronous_commit=on
+          timeout 40s bash -c 'until docker exec "$1" pg_isready -U proof_ci -d domain_proof_ci >/dev/null 2>&1; do sleep 1; done' _ "$name"
+          docker inspect "$name" --format 'resources memory={{.HostConfig.Memory}} cpus={{.HostConfig.NanoCpus}} pids={{.HostConfig.PidsLimit}} mounts={{json .Mounts}}'
+          timeout 180s python dev/domain-proof-postgres.py

@@ -21,7 +21,7 @@ class DomainSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'is_primary', 'target_backend_domain',
-            'verification_method', 'verification_token', 'verified_at',
+            'verification_method', 'verification_token', 'verified_at', 'status',
         ]
 
     def validate_domain(self, value):
