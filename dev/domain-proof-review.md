@@ -40,3 +40,6 @@ Website remains one responsive app; no SEO scope change.
 
 ## Baseline dependency provenance
 PyPI django-tenants3.6.1 publishes only source distribution, no wheel. The initial binary-only CI correctly stopped without running tests. The candidate now installs pinned build tools and other test dependencies as wheels, then explicitly downloads the official django-tenants3.6.1 sdist with SHA25636052d5bfce8240afab062e2d33ffeb25e38fa57b2a2b003eacd7e8d60334d97, verifies it before installation, and builds without dependency resolution/build isolation/network index. Official v3.6.1 setup.py was reviewed: standard setuptools package list, no scripts/custom commands. No newer tenancy version substitution and no NC installation. https://pypi.org/pypi/django-tenants/3.6.1/json
+
+## Existing baseline migration drift
+The no-DB autodetector reports AlterField Tenant.schema_name. This candidate leaves Tenant source unchanged. CI compares the entire Tenant AST to exact baseline a4e66d20dcf915e874b0291117e0d6b063df6eb4 and allows precisely that unchanged field operation; all new ownership drift fails. This is NOT a globally clean migration claim. Actual PostgreSQL migration and review of the pre-existing schema drift remain release gates.

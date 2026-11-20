@@ -115,7 +115,7 @@ class DomainOwnershipCommitView(OwnershipBase):
                 snapshot = snapshot_for(domain, tenant, request.user)
                 current_binding = binding_for(snapshot, getattr(settings, "DOMAIN_VERCEL_PROOF_BINDINGS", {}))
                 # Recheck signature/expiry after waiting for locks, not merely before them.
-                require_same_state(read_receipt(request.data["receipt"], key), snapshot, current_binding, evidence)
+                require_same_state(read_receipt(request.data["receipt"], getattr(settings, "DOMAIN_VERCEL_RECEIPT_KEY", "")), snapshot, current_binding, evidence)
                 if getattr(settings, "DOMAIN_VERCEL_PROOF_ENABLED", False) is not True:
                     raise ProofError("proof_disabled")
                 DomainOwnershipAudit.objects.create(
