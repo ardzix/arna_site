@@ -1,5 +1,6 @@
 """Authenticated, GET-only fixed Vercel control-plane adapter. Never fetch tenant hosts."""
 import requests
+import time
 from core.domain_proof_policy import ProofError, verified_evidence
 
 MAX_RESPONSE = 65536
@@ -14,6 +15,7 @@ def fetch_verified_evidence(binding, api_token):
             headers = {"Authorization": "Bearer " + api_token, "Accept": "application/json"}
             base = "https://api.vercel.com/v9/projects/" + binding["project_id"]
             values = []
+            deadline = time.monotonic() + 10
             for url in (base, base + "/domains/" + binding["host"]):
                 with session.get(url, params={"teamId": binding["team_id"]}, headers=headers,
                                  timeout=(3, 5), allow_redirects=False, stream=True) as response:
@@ -21,6 +23,8 @@ def fetch_verified_evidence(binding, api_token):
                         raise ProofError("provider_unavailable")
                     data = bytearray()
                     for chunk in response.iter_content(chunk_size=4096):
+                        if time.monotonic() > deadline:
+                            raise ProofError("provider_deadline")
                         data.extend(chunk)
                         if len(data) > MAX_RESPONSE:
                             raise ProofError("provider_response_limit")

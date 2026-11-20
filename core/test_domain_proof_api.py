@@ -190,3 +190,44 @@ class OwnershipAPITests(SimpleTestCase):
     def test_existing_active_legacy_domain_remains_compatible(self):
         self.domain.ownership_proof_required = False
         self.assertTrue(domain_has_required_proof(self.domain))
+
+
+class ExistingDomainMutationTests(SimpleTestCase):
+    """Execute actual reviewed view methods; no app settings/provider import or DB."""
+    def method(self, class_name, method_name):
+        import ast
+        from copy import deepcopy
+        from pathlib import Path
+        from rest_framework.response import Response
+        tree = ast.parse(Path(__file__).with_name("views.py").read_text())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name)
+        method = deepcopy(next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == method_name))
+        method.decorator_list = []
+        module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
+        serializer = Mock(return_value=SimpleNamespace(data={"status": "pending_verification"}))
+        namespace = {"Domain": Domain, "Response": Response, "DomainSerializer": serializer}
+        exec(compile(module, "core/views.py:reviewed-method", "exec"), namespace)
+        return namespace[method_name]
+
+    def test_create_cannot_request_active_or_failed_status(self):
+        post = self.method("DomainListCreateView", "post")
+        for status in ("active", "failed"):
+            response = post(object(), SimpleNamespace(data={"status": status}))
+            self.assertEqual(response.status_code, 400)
+
+    def test_patch_status_cannot_activate_even_with_primary_flag(self):
+        patch_method = self.method("DomainDetailView", "patch")
+        response = patch_method(object(), SimpleNamespace(data={"status": "active", "is_primary_frontend": True}), 174)
+        self.assertEqual(response.status_code, 400)
+
+    def test_primary_patch_does_not_overwrite_concurrent_proof_fields(self):
+        patch_method = self.method("DomainDetailView", "patch")
+        domain = SimpleNamespace(save=Mock())
+        owner = SimpleNamespace(_get_domain=Mock(return_value=domain))
+        response = patch_method(owner, SimpleNamespace(data={"is_primary_frontend": False}), 174)
+        self.assertEqual(response.status_code, 200)
+        domain.save.assert_called_once_with(update_fields=["is_primary_frontend"])
+
+    def test_serializer_does_not_accept_status_authority(self):
+        from core.serializers import DomainSerializer
+        self.assertTrue(DomainSerializer().fields["status"].read_only)
