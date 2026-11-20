@@ -37,6 +37,18 @@ jobs:
       - name: Frozen binary-only test dependencies
         run: |
           timeout 120s python -m pip install --only-binary=:all: --disable-pip-version-check -r dev/domain-proof-test-requirements.txt
+      - name: Verified baseline pure-Python django-tenants sdist (no version fallback)
+        run: |
+          timeout 30s python - <<'PY'
+          import hashlib, pathlib, urllib.request
+          url = "https://files.pythonhosted.org/packages/75/29/0a9d23094cfe35b6adfdee78182d2c4c83cfb32e9f80a55cee9158c413e9/django-tenants-3.6.1.tar.gz"
+          with urllib.request.urlopen(url, timeout=10) as response:
+              data = response.read(1024 * 1024)
+          assert hashlib.sha256(data).hexdigest() == "36052d5bfce8240afab062e2d33ffeb25e38fa57b2a2b003eacd7e8d60334d97"
+          pathlib.Path(".ci-django-tenants-3.6.1.tar.gz").write_bytes(data)
+          print("Official PyPI baseline artifact SHA256 verified.")
+          PY
+          timeout 45s python -m pip install --no-deps --no-build-isolation --no-index .ci-django-tenants-3.6.1.tar.gz
       - name: Synthetic policy, transport, protected endpoint and context tests (no DB or network)
         run: |
           timeout 45s python - <<'PY'
