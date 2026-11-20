@@ -35,7 +35,8 @@ jobs:
         with:
           python-version: "3.12.14"
       - name: Frozen binary-only test dependencies
-        run: timeout 120s python -m pip install --only-binary=:all: --disable-pip-version-check -r dev/domain-proof-test-requirements.txt
+        run: |
+          timeout 120s python -m pip install --only-binary=:all: --disable-pip-version-check -r dev/domain-proof-test-requirements.txt
       - name: Synthetic policy, transport, protected endpoint and context tests (no DB or network)
         run: |
           timeout 45s python - <<'PY'
