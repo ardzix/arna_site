@@ -1,4 +1,4 @@
-name: Domain ownership candidate (synthetic only)
+name: Domain ownership candidate (synthetic and disposable PostgreSQL)
 on:
   pull_request:
     paths: ["core/**", "dev/domain-proof*", ".github/workflows/domain-proof-dev.yml"]
@@ -7,7 +7,7 @@ permissions:
 jobs:
   synthetic:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       DJANGO_SETTINGS_MODULE: core.domain_proof_test_settings
@@ -87,3 +87,69 @@ jobs:
           assert op.field.deconstruct()[1:] == Tenant._meta.get_field("schema_name").deconstruct()[1:]
           print("Ownership migration-model state agrees; baseline Tenant.schema_name drift unchanged (explicit exception). No DB connection.")
           PY
+
+      - name: Fresh resource admission before disposable PostgreSQL
+        run: |
+          python3 - <<'PY'
+          import os, shutil, time
+          def cpu():
+              return list(map(int, open("/proc/stat").readline().split()[1:]))
+          prev = cpu()
+          for n in range(4):
+              available = int(next(l.split()[1] for l in open("/proc/meminfo") if l.startswith("MemAvailable:"))) // 1024
+              current = cpu()
+              delta = sum(current) - sum(prev)
+              idle = sum(current[3:5]) - sum(prev[3:5])
+              usage = 100 * (1 - idle / delta) if delta else 0
+              print({"sample": n, "available_mib": available, "cpu": round(usage, 2)}, flush=True)
+              assert available >= 4096 and usage <= 60 and shutil.disk_usage(".").free >= 5 * 1024**3
+              prev = current
+              if n < 3: time.sleep(20)
+          PY
+      - name: Real PostgreSQL migrations, competing commits and rollback (owned disposable container)
+        env:
+          DOMAIN_PROOF_PG_BOUNDARY: disposable-github-job
+        run: |
+          set -euo pipefail
+          name="arna-proof-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          label="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if docker container inspect "$name" >/dev/null 2>&1; then
+            echo "Refusing an existing container name"; exit 1
+          fi
+          python - <<'PY'
+          import socket
+          with socket.socket() as s:
+              assert s.connect_ex(("127.0.0.1", 55432)) != 0, "Port already occupied"
+          PY
+          cleanup() {
+            code=$?
+            trap - EXIT
+            if docker container inspect "$name" >/dev/null 2>&1; then
+              owner=$(docker inspect --format '{{index .Config.Labels "com.arnatech.proof-ci"}}' "$name")
+              if [ "$owner" != "$label" ]; then echo "Cleanup ownership mismatch"; exit 1; fi
+              docker rm --force "$name" >/dev/null || code=1
+            fi
+            if docker container inspect "$name" >/dev/null 2>&1; then echo "Container remains"; exit 1; fi
+            python - <<'PY' || code=1
+          import socket, json
+          with socket.socket() as s:
+              assert s.connect_ex(("127.0.0.1", 55432)) != 0
+          print(json.dumps({"cleanup": {"owned_container_absent": True, "loopback_port_closed": True,
+                                       "data": "tmpfs removed with container; no host mounts/volumes"}}))
+          PY
+            exit "$code"
+          }
+          trap cleanup EXIT
+          timeout 90s docker pull postgres:16.13
+          docker image inspect postgres:16.13 --format '{{index .RepoDigests 0}}'
+          image=$(docker image inspect postgres:16.13 --format '{{.Id}}')
+          timeout 20s docker run --detach --name "$name" --label "com.arnatech.proof-ci=$label" \
+            --memory=384m --cpus=0.5 --pids-limit=64 \
+            --publish 127.0.0.1:55432:5432 \
+            --tmpfs /var/lib/postgresql/data:rw,size=128m \
+            --env POSTGRES_DB=domain_proof_ci --env POSTGRES_USER=proof_ci \
+            --env POSTGRES_PASSWORD=synthetic-ci-only \
+            "$image" postgres -c max_connections=16 -c shared_buffers=32MB -c fsync=on -c synchronous_commit=on
+          timeout 40s bash -c 'until docker exec "$1" pg_isready -U proof_ci -d domain_proof_ci >/dev/null 2>&1; do sleep 1; done' _ "$name"
+          docker inspect "$name" --format 'resources memory={{.HostConfig.Memory}} cpus={{.HostConfig.NanoCpus}} pids={{.HostConfig.PidsLimit}} mounts={{json .Mounts}}'
+          timeout 180s python dev/domain-proof-postgres.py
