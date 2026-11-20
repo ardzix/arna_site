@@ -74,8 +74,7 @@ jobs:
           changes = MigrationAutodetector(loader.project_state(), ProjectState.from_apps(apps)).changes(graph=loader.graph)
           # Baseline already drifts on Tenant.schema_name; prove unchanged source,
           # allow precisely that existing operation and reject all new drift.
-          import subprocess
-          baseline = subprocess.check_output(["git", "show", "a4e66d20dcf915e874b0291117e0d6b063df6eb4:core/models.py"], text=True)
+          baseline = pathlib.Path("dev/domain-proof-baseline-tenant.py.txt").read_text()
           def tenant_ast(source):
               return ast.dump(next(n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == "Tenant"), include_attributes=False)
           assert tenant_ast(baseline) == tenant_ast(pathlib.Path("core/models.py").read_text())
