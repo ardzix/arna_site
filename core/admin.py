@@ -18,3 +18,4 @@ class TenantAdmin(TenantAdminMixin, admin.ModelAdmin):
 class DomainAdmin(admin.ModelAdmin):
     """DomainAdmin class."""
     list_display = ('domain', 'tenant', 'is_primary')
+    readonly_fields = ('status', 'verified_at', 'ownership_proof_required', 'verification_method', 'verification_token')

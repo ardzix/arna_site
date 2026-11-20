@@ -1,0 +1,64 @@
+name: Domain ownership candidate (synthetic only)
+on:
+  pull_request:
+    paths: ["core/**", "dev/domain-proof*", ".github/workflows/domain-proof-dev.yml"]
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      DJANGO_SETTINGS_MODULE: core.domain_proof_test_settings
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Resource admission
+        run: |
+          python3 - <<'PY'
+          import os, shutil, time
+          def cpu():
+              return list(map(int, open("/proc/stat").readline().split()[1:]))
+          prev = cpu()
+          for n in range(4):
+              available = int(next(l.split()[1] for l in open("/proc/meminfo") if l.startswith("MemAvailable:"))) // 1024
+              current = cpu()
+              delta = sum(current) - sum(prev)
+              idle = sum(current[3:5]) - sum(prev[3:5])
+              usage = 100 * (1 - idle / delta) if delta else 0
+              print({"sample": n, "available_mib": available, "cpu": round(usage, 2)}, flush=True)
+              assert available >= 4096 and usage <= 60 and shutil.disk_usage(".").free >= 5 * 1024**3
+              prev = current
+              if n < 3: time.sleep(20)
+          PY
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.14"
+      - name: Frozen binary-only test dependencies
+        run: timeout 120s python -m pip install --only-binary=:all: --disable-pip-version-check -r dev/domain-proof-test-requirements.txt
+      - name: Synthetic policy, transport, protected endpoint and context tests (no DB or network)
+        run: |
+          timeout 45s python - <<'PY'
+          import django, unittest
+          django.setup()
+          modules = ["core.test_domain_proof_policy", "core.test_vercel_proof_transport", "core.test_domain_proof_api", "core.test_website_context"]
+          suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+          PY
+      - name: Syntax and migration-model drift (no DB connection)
+        run: |
+          timeout 30s python - <<'PY'
+          import ast, pathlib, django
+          for path in pathlib.Path("core").rglob("*.py"):
+              ast.parse(path.read_text(), filename=str(path))
+          django.setup()
+          from django.apps import apps
+          from django.db.migrations.loader import MigrationLoader
+          from django.db.migrations.state import ProjectState
+          from django.db.migrations.autodetector import MigrationAutodetector
+          loader = MigrationLoader(None, ignore_no_migrations=True)
+          changes = MigrationAutodetector(loader.project_state(), ProjectState.from_apps(apps)).changes(graph=loader.graph)
+          assert not changes.get("core"), changes.get("core")
+          print("Syntax and migration-model state agree; no DB connection.")
+          PY

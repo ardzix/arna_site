@@ -1,0 +1,16 @@
+# Hermetic test-only subset. Application requirements.txt is unchanged.
+Django==5.0.6
+asgiref==3.8.1
+sqlparse==0.5.3
+djangorestframework==3.15.2
+django-tenants==3.6.1
+psycopg2-binary==2.9.10
+requests==2.32.3
+urllib3==2.5.0
+idna==3.10
+charset-normalizer==3.4.2
+certifi==2025.4.26
+PyJWT==2.10.1
+cryptography==44.0.3
+cffi==1.17.1
+pycparser==2.22

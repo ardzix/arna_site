@@ -21,7 +21,7 @@ class WebsiteContextTest(SimpleTestCase):
 
     def test_aliases_keep_the_same_public_uuid_identity(self):
         tenant = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
-        domain = SimpleNamespace(tenant=tenant)
+        domain = SimpleNamespace(tenant=tenant, role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False)
         for host in ["customer.bisnisnaikkelas.com", "customer-alias.example.com"]:
             response, manager = self.call(host, domain)
             self.assertEqual(response.status_code, 200)
@@ -44,6 +44,6 @@ class WebsiteContextTest(SimpleTestCase):
             manager.select_related.assert_not_called()
 
     def test_legacy_numeric_or_invalid_identity_fails_closed(self):
-        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68))
+        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68), role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False)
         response, _ = self.call("customer.example.com", domain)
         self.assertEqual(response.status_code, 503)

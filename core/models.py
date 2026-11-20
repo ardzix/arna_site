@@ -92,6 +92,7 @@ class Domain(DomainMixin):
     verification_method = models.CharField(max_length=32, blank=True, default="")
     verification_token = models.CharField(max_length=255, blank=True, default="")
     verified_at = models.DateTimeField(null=True, blank=True)
+    ownership_proof_required = models.BooleanField(default=True)
 
     class Meta:
         app_label = "core"
@@ -206,3 +207,22 @@ class TemplateListItem(models.Model):
 
     def __str__(self):
         return getattr(self, "title", str(self.id))
+
+
+class DomainOwnershipAudit(models.Model):
+    """Nonsecret evidence of an atomic ownership activation; no raw receipt/token."""
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    domain = models.ForeignKey(Domain, on_delete=models.PROTECT, related_name="ownership_audits")
+    tenant_public_id = models.UUIDField()
+    organization_id = models.UUIDField()
+    actor_id = models.UUIDField()
+    hostname = models.CharField(max_length=253)
+    provider = models.CharField(max_length=32)
+    project_id = models.CharField(max_length=100)
+    team_id = models.CharField(max_length=100)
+    receipt_hash = models.CharField(max_length=64, unique=True)
+    evidence_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "core"
