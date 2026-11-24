@@ -1,9 +1,11 @@
 """Module for core.models."""
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 from django_tenants.models import TenantMixin, DomainMixin
+from django_tenants.postgresql_backend.base import _check_schema_name
 
 
 class Tenant(TenantMixin):
@@ -28,7 +30,7 @@ class Tenant(TenantMixin):
     ]
 
     # Override TenantMixin field to allow multiple tenant rows reusing one shared schema.
-    schema_name = models.CharField(max_length=63, db_index=True)
+    schema_name = models.CharField(max_length=63, db_index=True, validators=[_check_schema_name])
     # Stable cross-service identity. `id` remains the legacy database primary
     # key and must never be used as a public tenant identifier.
     public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
@@ -92,6 +94,23 @@ class Domain(DomainMixin):
     verification_method = models.CharField(max_length=32, blank=True, default="")
     verification_token = models.CharField(max_length=255, blank=True, default="")
     verified_at = models.DateTimeField(null=True, blank=True)
+    crm_tenant = models.ForeignKey(
+        Tenant, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="crm_website_domains",
+        help_text="Optional CRM inbox in the same organization; does not change website ownership.",
+    )
+
+    def clean(self):
+        super().clean()
+        if self.crm_tenant_id:
+            try:
+                same_org = uuid.UUID(str(self.tenant.sso_organization_id)) == uuid.UUID(
+                    str(self.crm_tenant.sso_organization_id)
+                )
+            except (ValueError, TypeError):
+                same_org = False
+            if not same_org or not self.crm_tenant.is_active:
+                raise ValidationError({"crm_tenant": "CRM destination must be active and in the website's organization."})
 
     class Meta:
         app_label = "core"

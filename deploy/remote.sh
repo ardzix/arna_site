@@ -10,10 +10,10 @@ REMOTE="/root/arnatech-releases/site-$RELEASE_ID"
 KNOWN_HOSTS=deploy/ssh_known_hosts
 test -s "$KNOWN_HOSTS"
 ssh_manager() {
-  ssh -i "$SITE_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 root@arnatech.id "$@"
+  ssh -i "$SITE_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 root@172.105.124.43 "$@"
 }
 copy_private() {
-  scp -i "$SITE_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 "$1" "root@arnatech.id:$REMOTE/$2"
+  scp -i "$SITE_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 "$1" "root@172.105.124.43:$REMOTE/$2"
 }
 if [ "$PHASE" = stage ]; then
   ssh_manager "umask 077; mkdir -p '$REMOTE/registry'; chmod 700 '$REMOTE' '$REMOTE/registry'"

@@ -25,7 +25,7 @@ class PublicWebsiteContextView(APIView):
         if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}", host):
             return failure("invalid_host", "Use an exact website hostname.", 400)
         with schema_context("public"):
-            domain = Domain.objects.select_related("tenant").filter(
+            domain = Domain.objects.select_related("tenant", "crm_tenant").filter(
                 domain=host,
                 role__in=[Domain.ROLE_FRONTEND_DEFAULT, Domain.ROLE_FRONTEND_CUSTOM],
                 status=Domain.STATUS_ACTIVE,
@@ -36,7 +36,13 @@ class PublicWebsiteContextView(APIView):
                 return failure("website_not_found", "Verified website not found.", 404)
             try:
                 organization_id = str(UUID(str(domain.tenant.sso_organization_id)))
-                tenant_id = str(UUID(str(domain.tenant.public_id)))
+                destination = domain.crm_tenant or domain.tenant
+                if domain.crm_tenant and (
+                    not destination.is_active
+                    or UUID(str(destination.sso_organization_id)) != UUID(organization_id)
+                ):
+                    raise ValueError("CRM destination is inactive or belongs to another organization")
+                tenant_id = str(UUID(str(destination.public_id)))
             except (ValueError, TypeError):
                 return failure("website_context_unavailable", "Website identity is unavailable.", 503)
             # Both IDs are public routing identifiers. The consumer must still
