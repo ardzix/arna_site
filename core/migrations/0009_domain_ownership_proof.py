@@ -2,17 +2,9 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
-def require_pending_custom_proof(apps, schema_editor):
-    Domain = apps.get_model("core", "Domain")
-    Domain.objects.filter(role="frontend_custom", status="pending_verification").update(ownership_proof_required=True)
-
-
 class Migration(migrations.Migration):
     dependencies = [("core", "0008_domain_crm_tenant")]
     operations = [
-        migrations.AddField(model_name="domain", name="ownership_proof_required", field=models.BooleanField(default=False)),
-        migrations.RunPython(require_pending_custom_proof, migrations.RunPython.noop),
-        migrations.AlterField(model_name="domain", name="ownership_proof_required", field=models.BooleanField(default=True)),
         migrations.CreateModel(
             name="DomainOwnershipAudit",
             fields=[

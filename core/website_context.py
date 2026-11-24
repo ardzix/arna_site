@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 
 from core.models import Domain
 from core.domain_proof_admission import domain_has_required_proof
+from core.domain_proof_scope import is_pilot_host
 
 
 def failure(code, detail, status):
@@ -44,6 +45,8 @@ class PublicWebsiteContextView(APIView):
                 ):
                     raise ValueError("CRM destination is inactive or belongs to another organization")
                 tenant_id = str(UUID(str(destination.public_id)))
+                if is_pilot_host(host) and tenant_id != str(domain.tenant.public_id):
+                    raise ValueError("Arnatech pilot CRM must remain in its approved inbox")
             except (ValueError, TypeError):
                 return failure("website_context_unavailable", "Website identity is unavailable.", 503)
             # Both IDs are public routing identifiers. The consumer must still

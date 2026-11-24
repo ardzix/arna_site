@@ -118,25 +118,29 @@ class RuntimeProofConfigTests(unittest.TestCase):
     def setUp(self):
         import json
         from config.domain_proof_config import read_vercel_proof_config
+        from core.domain_proof_scope import PILOT_HOST, PILOT_ORGANIZATION, PILOT_TENANT
         self.read = read_vercel_proof_config
+        self.bindings = {PILOT_TENANT: {**BINDING, 'host': PILOT_HOST, 'organization_id': PILOT_ORGANIZATION}}
         self.env = {
             "DOMAIN_VERCEL_PROOF_ENABLED": "true",
             "DOMAIN_VERCEL_RECEIPT_KEY": KEY,
             "DOMAIN_VERCEL_API_TOKEN": "synthetic-credential",
-            "DOMAIN_VERCEL_PROOF_BINDINGS": json.dumps({SNAPSHOT["tenant_id"]: BINDING}),
+            "DOMAIN_VERCEL_PROOF_BINDINGS": json.dumps(self.bindings),
+            "DOMAIN_VERCEL_PROOF_OPERATOR_ID": SNAPSHOT["actor_id"],
         }
 
     def test_explicit_opt_in_only(self):
         for flag in ("", "false", "TRUE", "1"):
             self.assertEqual(self.read({**self.env, "DOMAIN_VERCEL_PROOF_ENABLED": flag}, KEY),
-                             (False, "", "", {}))
+                             (False, "", "", {}, ""))
         self.assertEqual(self.read(self.env, "different-django-key"),
-                         (True, KEY, "synthetic-credential", {SNAPSHOT["tenant_id"]: BINDING}))
+                         (True, KEY, "synthetic-credential", self.bindings, SNAPSHOT["actor_id"]))
 
     def test_incomplete_ambiguous_or_reused_credentials_rejected_without_value_echo(self):
         for changes, django_key in (
             ({"DOMAIN_VERCEL_RECEIPT_KEY": "not-dedicated"}, "different"),
             ({}, KEY),
+            ({"DOMAIN_VERCEL_PROOF_OPERATOR_ID": ""}, "different"),
             ({"DOMAIN_VERCEL_API_TOKEN": KEY}, "different"),
             ({"DOMAIN_VERCEL_API_TOKEN": "should-not-log-this\n"}, "different"),
             ({"DOMAIN_VERCEL_PROOF_BINDINGS": '{"same":{},"same":{}}'}, "different"),

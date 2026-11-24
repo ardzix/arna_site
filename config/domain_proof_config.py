@@ -3,6 +3,7 @@ import json
 from uuid import UUID
 
 from core.domain_proof_policy import HOST, IDENTIFIER, receipt_key
+from core.domain_proof_scope import PILOT_HOST, PILOT_ORGANIZATION, PILOT_TENANT
 
 
 def _unique_pairs(pairs):
@@ -20,8 +21,11 @@ def _uuid(value):
 
 def read_vercel_proof_config(environment, django_secret):
     if environment.get("DOMAIN_VERCEL_PROOF_ENABLED") != "true":
-        return False, "", "", {}
+        return False, "", "", {}, ""
     try:
+        actor = environment.get("DOMAIN_VERCEL_PROOF_OPERATOR_ID", "")
+        if not _uuid(actor):
+            raise ValueError("immutable operator identity required")
         key = environment.get("DOMAIN_VERCEL_RECEIPT_KEY", "")
         token = environment.get("DOMAIN_VERCEL_API_TOKEN", "")
         receipt_key(key)
@@ -32,7 +36,7 @@ def read_vercel_proof_config(environment, django_secret):
         if len(raw) > 16384:
             raise ValueError("bindings size")
         bindings = json.loads(raw, object_pairs_hook=_unique_pairs)
-        if not isinstance(bindings, dict) or not 1 <= len(bindings) <= 16:
+        if not isinstance(bindings, dict) or set(bindings) != {PILOT_TENANT}:
             raise ValueError("bounded bindings required")
         seen_hosts = set()
         for tenant, binding in bindings.items():
@@ -41,6 +45,8 @@ def read_vercel_proof_config(environment, django_secret):
                     not _uuid(binding["organization_id"])):
                 raise ValueError("invalid binding identity")
             host = binding["host"]
+            if host != PILOT_HOST or binding["organization_id"] != PILOT_ORGANIZATION:
+                raise ValueError("unexpected pilot binding")
             if (not isinstance(host, str) or len(host) > 253 or not HOST.fullmatch(host) or
                     host in seen_hosts):
                 raise ValueError("invalid or duplicate host")
@@ -49,6 +55,6 @@ def read_vercel_proof_config(environment, django_secret):
                 value = binding[field]
                 if not isinstance(value, str) or not value.startswith(prefix) or not IDENTIFIER.fullmatch(value):
                     raise ValueError("invalid provider identity")
-        return True, key, token, bindings
+        return True, key, token, bindings, actor
     except (ValueError, TypeError, RecursionError):
         raise RuntimeError("Vercel ownership proof configuration rejected; inspect managed settings privately.") from None

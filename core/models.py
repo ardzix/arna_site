@@ -94,7 +94,6 @@ class Domain(DomainMixin):
     verification_method = models.CharField(max_length=32, blank=True, default="")
     verification_token = models.CharField(max_length=255, blank=True, default="")
     verified_at = models.DateTimeField(null=True, blank=True)
-    ownership_proof_required = models.BooleanField(default=True)
     crm_tenant = models.ForeignKey(
         Tenant, on_delete=models.PROTECT, null=True, blank=True,
         related_name="crm_website_domains",

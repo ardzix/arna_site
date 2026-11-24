@@ -1,10 +1,17 @@
-"""Require an audit for new/pending custom domains even after a bare status flip."""
+"""Domain audit admission is only for Arnatech pilot chat, never unrelated CMS/CRM."""
+from django.conf import settings
+
+from core.domain_proof_scope import is_exact_pilot_domain, is_pilot_host
 from core.models import Domain, DomainOwnershipAudit
 
 
 def domain_has_required_proof(domain):
-    if domain.role != Domain.ROLE_FRONTEND_CUSTOM or not domain.ownership_proof_required:
-        return True  # Existing active legacy domains are explicitly grandfathered by migration.
+    if not is_pilot_host(domain.domain):
+        return True
+    if getattr(settings, "DOMAIN_VERCEL_CHAT_ROUTING_ENABLED", False) is not True:
+        return False
+    if not is_exact_pilot_domain(domain):
+        return False
     if domain.status != Domain.STATUS_ACTIVE or not domain.verified_at or domain.verification_method != "vercel-api-v1":
         return False
     return DomainOwnershipAudit.objects.filter(

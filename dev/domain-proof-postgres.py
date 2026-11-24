@@ -27,7 +27,7 @@ with connection.cursor() as cursor:
     assert cursor.fetchone()[0] == 0, "Database is not fresh."
 print(json.dumps({"boundary": "disposable GitHub-hosted job / owned PostgreSQL container / tmpfs data",
                   "server_version_num": version, "database": database, "provider": "synthetic",
-                  "auth": "forced synthetic user; not JWT/SSO validation"}), flush=True)
+                  "auth": "synthetic managed operator; no external authentication"}), flush=True)
 
 BASE = ("core", "0008_domain_crm_tenant")
 HEAD = ("core", "0009_domain_ownership_proof")
@@ -53,11 +53,11 @@ preserved = {item.pk: (item.domain, item.status, item.verified_at, item.verifica
 executor = MigrationExecutor(connection)
 executor.migrate([HEAD])
 from core.models import Domain, DomainOwnershipAudit
-assert Domain.objects.get(pk=pending.pk).ownership_proof_required is True
-assert Domain.objects.get(pk=legacy.pk).ownership_proof_required is False
+for pk, expected in preserved.items():
+    item = Domain.objects.get(pk=pk)
+    assert (item.domain, item.status, item.verified_at, item.verification_token, item.crm_tenant_id) == expected
 assert Domain.objects.get(pk=legacy.pk).crm_tenant_id == crm.pk
-assert Domain.objects.get(pk=default.pk).ownership_proof_required is False
-print(json.dumps({"migration_forward": "passed", "pending_requires_proof": True,
+print(json.dumps({"migration_forward": "passed", "unrelated_pending_row_unchanged": True,
                   "existing_active_legacy_preserved": True}), flush=True)
 
 suite = unittest.defaultTestLoader.loadTestsFromName("core.test_domain_proof_postgres")
@@ -89,8 +89,6 @@ print(json.dumps({"migration_reverse_DDL": "passed", "business_domain_rows_prese
                   "recommended_rollback": "disable feature/keep forward schema and audit; website remains off"}), flush=True)
 MigrationExecutor(connection).migrate([HEAD])
 assert DomainOwnershipAudit.objects.count() == 0
-assert Domain.objects.get(pk=pending.pk).ownership_proof_required is True
-assert Domain.objects.get(pk=legacy.pk).ownership_proof_required is False
 assert Domain.objects.get(pk=legacy.pk).crm_tenant_id == crm.pk
 print(json.dumps({"migration_reapply": "passed", "reverse_reapply_restores_audit": False,
                   "warning": "Reverse DDL loses proof history. Never use as production rollback without separate reviewed restoration."}), flush=True)

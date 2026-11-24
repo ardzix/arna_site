@@ -1,4 +1,4 @@
-"""Real disposable PostgreSQL transactions/locks; provider/JWT remain synthetic."""
+"""Real disposable PostgreSQL transactions/locks; provider and operator are synthetic."""
 import threading
 import time
 import unittest
@@ -11,12 +11,11 @@ from django.db import connection, connections, transaction, IntegrityError
 from django.db.models.deletion import ProtectedError
 from django.test import override_settings
 from django.utils import timezone
-from rest_framework.test import APIRequestFactory, force_authenticate
 
 from core.models import Tenant, Domain, DomainOwnershipAudit
 from core.domain_proof_admission import domain_has_required_proof
 from core.domain_proof_policy import ProofError, read_receipt, issue_receipt
-from core.domain_proof_views import DomainOwnershipProofView, DomainOwnershipCommitView
+from core.domain_proof_operator import inspect_proof, apply_proof
 
 KEY = "synthetic-disposable-postgres-receipt-key-only"
 
@@ -40,29 +39,30 @@ class RealPostgresTests(unittest.TestCase):
                         "project_id": "prj_synthetic", "team_id": "team_synthetic"}
         self.evidence = {"provider": "vercel-api-v1", "host": self.domain.domain,
                          "project_id": "prj_synthetic", "team_id": "team_synthetic", "verified": True}
+        self.scope = patch.multiple("core.domain_proof_scope", PILOT_HOST=self.domain.domain,
+                                    PILOT_DOMAIN_ID=self.domain.pk, PILOT_TENANT=str(self.tenant.public_id),
+                                    PILOT_ORGANIZATION=self.org)
+        self.scope.start()
+        self.addCleanup(self.scope.stop)
         self.settings = override_settings(
             DOMAIN_VERCEL_PROOF_ENABLED=True, DOMAIN_VERCEL_RECEIPT_KEY=KEY,
+            DOMAIN_VERCEL_PROOF_OPERATOR_ID=self.user.id, DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=True,
             DOMAIN_VERCEL_API_TOKEN="synthetic-not-a-real-token",
             DOMAIN_VERCEL_PROOF_BINDINGS={str(self.tenant.public_id): self.binding})
         self.settings.enable()
         self.addCleanup(self.settings.disable)
-        self.provider = patch("core.domain_proof_views.fetch_verified_evidence", return_value=self.evidence).start()
+        self.provider = patch("core.domain_proof_operator.fetch_verified_evidence", return_value=self.evidence).start()
         self.addCleanup(patch.stopall)
-        connection.tenant = self.tenant
-
-    def call(self, view, data, tenant=None):
-        connection.tenant = tenant or self.tenant
-        request = APIRequestFactory().post("/synthetic-proof/", data, format="json")
-        force_authenticate(request, user=self.user)
-        return view.as_view()(request, pk=self.domain.pk)
 
     def proof(self):
-        response = self.call(DomainOwnershipProofView, {})
-        self.assertEqual(response.status_code, 200, response.data)
-        return response.data["receipt"]
+        return inspect_proof()
 
     def commit(self, receipt):
-        return self.call(DomainOwnershipCommitView, {"receipt": receipt})
+        try:
+            apply_proof(receipt)
+            return SimpleNamespace(status_code=200)
+        except ProofError:
+            return SimpleNamespace(status_code=409)
 
     def persisted(self):
         self.domain.refresh_from_db()
@@ -136,7 +136,7 @@ class RealPostgresTests(unittest.TestCase):
             Tenant.objects.filter(pk=self.tenant.pk).update(sso_organization_id=str(uuid.uuid4()))
             return self.evidence
         self.provider.side_effect = changed
-        self.assertEqual(self.commit(receipt).status_code, 403)
+        self.assertEqual(self.commit(receipt).status_code, 409)
         self.assertEqual(self.persisted().count(), 0)
         self.assertEqual(self.domain.status, Domain.STATUS_PENDING)
 
@@ -162,7 +162,7 @@ class RealPostgresTests(unittest.TestCase):
         def clock_read(value, key):
             return read_receipt(value, key, now=clock[0])
         self.provider.side_effect = observed
-        with patch("core.domain_proof_views.read_receipt", side_effect=clock_read):
+        with patch("core.domain_proof_operator.read_receipt", side_effect=clock_read):
             with transaction.atomic():
                 Tenant.objects.select_for_update().get(pk=self.tenant.pk)
                 worker = threading.Thread(target=self.thread_commit,
@@ -209,8 +209,8 @@ class RealPostgresTests(unittest.TestCase):
                        slug="other-" + uuid.uuid4().hex, sso_organization_id=self.org)
         other.auto_create_schema = False
         other.save()
-        response = self.call(DomainOwnershipCommitView, {"receipt": receipt}, tenant=other)
-        self.assertEqual(response.status_code, 404)
+        Domain.objects.filter(pk=self.domain.pk).update(tenant=other)
+        self.assertEqual(self.commit(receipt).status_code, 409)
         self.assertEqual(self.persisted().count(), 0)
 
     def test_bare_status_and_timestamp_without_matching_audit_do_not_admit(self):
@@ -225,9 +225,11 @@ class RealPostgresTests(unittest.TestCase):
         audit = self.persisted().get()
         with override_settings(DOMAIN_VERCEL_PROOF_ENABLED=False):
             self.assertEqual(self.commit(receipt).status_code, 409)
+            self.assertTrue(domain_has_required_proof(self.domain))
+        with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=False):
+            self.assertFalse(domain_has_required_proof(self.domain))
         self.assertTrue(DomainOwnershipAudit.objects.filter(pk=audit.pk).exists())
         self.assertEqual(self.persisted().count(), 1)
-        self.assertTrue(domain_has_required_proof(self.domain))
 
     def test_audit_prevents_accidental_domain_delete(self):
         receipt = self.proof()

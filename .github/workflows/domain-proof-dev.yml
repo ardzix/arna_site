@@ -49,7 +49,7 @@ jobs:
           print("Official PyPI baseline artifact SHA256 verified.")
           PY
           timeout 45s python -m pip install --no-deps --no-build-isolation --no-index .ci-django-tenants-3.6.1.tar.gz
-      - name: Synthetic policy, transport, protected endpoint and context tests (no DB or network)
+      - name: Synthetic policy, operator command, scoped admin-route and context tests (no DB or provider calls)
         run: |
           timeout 45s python - <<'PY'
           import django, unittest

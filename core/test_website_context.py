@@ -3,15 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory
 
 from core.models import Domain
+from core.domain_proof_scope import PILOT_DOMAIN_ID, PILOT_HOST, PILOT_ORGANIZATION, PILOT_TENANT
 from core.website_context import PublicWebsiteContextView
 
 
 class WebsiteContextTest(SimpleTestCase):
     def call(self, host, domain):
+        if domain is not None and not hasattr(domain, 'domain'):
+            domain.domain = host
         with patch("core.website_context.schema_context", return_value=nullcontext()), patch(
             "core.website_context.Domain.objects"
         ) as manager:
@@ -21,7 +24,7 @@ class WebsiteContextTest(SimpleTestCase):
 
     def test_aliases_keep_the_same_public_uuid_identity(self):
         tenant = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
-        domain = SimpleNamespace(tenant=tenant, crm_tenant=None, role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False)
+        domain = SimpleNamespace(tenant=tenant, crm_tenant=None)
         for host in ["customer.bisnisnaikkelas.com", "customer-alias.example.com"]:
             response, manager = self.call(host, domain)
             self.assertEqual(response.status_code, 200)
@@ -44,14 +47,14 @@ class WebsiteContextTest(SimpleTestCase):
             manager.select_related.assert_not_called()
 
     def test_legacy_numeric_or_invalid_identity_fails_closed(self):
-        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68), crm_tenant=None, role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False)
+        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68), crm_tenant=None)
         response, _ = self.call("customer.example.com", domain)
         self.assertEqual(response.status_code, 503)
 
     def test_crm_destination_keeps_website_owner_and_routes_only_crm(self):
         owner = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
         target = SimpleNamespace(sso_organization_id=owner.sso_organization_id, public_id=uuid4(), is_active=True)
-        domain = SimpleNamespace(tenant=owner, crm_tenant=target, role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False)
+        domain = SimpleNamespace(tenant=owner, crm_tenant=target)
         response, _ = self.call("customer.example.com", domain)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["tenant_id"], str(target.public_id))
@@ -66,29 +69,29 @@ class WebsiteContextTest(SimpleTestCase):
                                       (True, owner.sso_organization_id, "invalid")]:
             with self.subTest(active=active, org=org, identity=identity):
                 target = SimpleNamespace(is_active=active, sso_organization_id=org, public_id=identity)
-                response, _ = self.call("customer.example.com", SimpleNamespace(tenant=owner, crm_tenant=target, role=Domain.ROLE_FRONTEND_DEFAULT, ownership_proof_required=False))
+                response, _ = self.call("customer.example.com", SimpleNamespace(tenant=owner, crm_tenant=target))
                 self.assertEqual(response.status_code, 503)
 
-    def test_crm_destination_cannot_bypass_required_ownership_proof(self):
-        owner = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
-        target = SimpleNamespace(sso_organization_id=owner.sso_organization_id, public_id=uuid4(), is_active=True)
-        host = "customer.example.com"
+    def test_exact_pilot_requires_audit_and_cannot_route_to_other_same_org_inbox(self):
+        from uuid import UUID
+        owner = SimpleNamespace(sso_organization_id=PILOT_ORGANIZATION, public_id=UUID(PILOT_TENANT), is_active=True)
         domain = SimpleNamespace(
-            tenant=owner, crm_tenant=target, role=Domain.ROLE_FRONTEND_CUSTOM,
-            ownership_proof_required=True, status=Domain.STATUS_ACTIVE, verified_at=True,
-            verification_method="vercel-api-v1", domain=host, pk=10,
+            tenant=owner, crm_tenant=None, role=Domain.ROLE_FRONTEND_CUSTOM,
+            status=Domain.STATUS_ACTIVE, verified_at=True, verification_method="vercel-api-v1",
+            domain=PILOT_HOST, pk=PILOT_DOMAIN_ID,
         )
-        with patch("core.domain_proof_admission.DomainOwnershipAudit.objects") as audit:
+        self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 404)
+        with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=True), patch(
+            "core.domain_proof_admission.DomainOwnershipAudit.objects"
+        ) as audit:
             audit.filter.return_value.exists.return_value = False
-            self.assertEqual(self.call(host, domain)[0].status_code, 404)
+            self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 404)
             audit.filter.return_value.exists.return_value = True
-            response, _ = self.call(host, domain)
+            response, _ = self.call(PILOT_HOST, domain)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.data["tenant_id"], str(target.public_id))
-            audit.filter.assert_called_with(
-                domain_id=domain.pk, hostname=host, tenant_public_id=owner.public_id,
-                organization_id=owner.sso_organization_id, provider="vercel-api-v1",
-            )
+            self.assertEqual(response.data["tenant_id"], PILOT_TENANT)
+            domain.crm_tenant = SimpleNamespace(sso_organization_id=PILOT_ORGANIZATION, public_id=uuid4(), is_active=True)
+            self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 503)
 
 
 class WebsiteCRMDestinationValidationTest(SimpleTestCase):

@@ -20,6 +20,7 @@ from drf_yasg import openapi
 
 from authentication.permissions import IsTenantMember, IsTenantAdmin, IsTenantOwner
 from authentication.jwt_backends import _jwt_decode_kwargs, get_cached_public_key
+from core.domain_proof_scope import is_pilot_host
 from core.models import Template, TemplatePage, TemplateSection, TemplateBlock, TemplateListItem, Tenant, Domain
 from core.serializers import (
     TemplateSerializer,
@@ -31,7 +32,6 @@ from core.serializers import (
     DomainSerializer,
     PremiumCheckoutSerializer,
 )
-from core.domain_proof_admission import domain_has_required_proof
 from core.services import apply_template
 from core.commerce import (
     CommerceClient,
@@ -965,8 +965,8 @@ class DomainListCreateView(APIView):
         security=[{'Bearer': []}],
     )
     def post(self, request):
-        if request.data.get("status", Domain.STATUS_PENDING) != Domain.STATUS_PENDING:
-            return Response({"error": "Ownership proof is required before activation."}, status=400)
+        if is_pilot_host(request.data.get("domain")):
+            return Response({"error": "The Arnatech pilot domain is managed through approved ownership proof."}, status=409)
         tenant = self._get_tenant()
         org_id = str(getattr(request.user, "org_id", "") or "")
         token = request.META.get("HTTP_AUTHORIZATION", "").split(" ", 1)[1] if request.META.get("HTTP_AUTHORIZATION", "").startswith("Bearer ") else ""
@@ -1005,7 +1005,6 @@ class DomainListCreateView(APIView):
             target_backend_domain=(backend_primary.domain if backend_primary else ""),
             verification_token=verification_token,
             verification_method=verification_method,
-            status=Domain.STATUS_PENDING, verified_at=None, ownership_proof_required=True,
         )
         return Response(DomainSerializer(domain).data, status=201)
 
@@ -1034,6 +1033,8 @@ class DomainDetailView(APIView):
     )
     def delete(self, request, pk):
         domain = self._get_domain(pk)
+        if is_pilot_host(domain.domain):
+            return Response({"error": "The Arnatech pilot domain is managed through approved ownership proof."}, status=409)
         if domain.is_primary:
             return Response(
                 {"error": "Domain primary tidak bisa dihapus. Tambah domain baru terlebih dahulu, lalu hubungi support untuk memindahkan primary."},
@@ -1044,8 +1045,6 @@ class DomainDetailView(APIView):
                 {"error": "Frontend default domain tidak bisa dihapus."},
                 status=400,
             )
-        if domain.ownership_audits.exists():
-            return Response({"error": "Verified domain audit must be retained; archive requires review."}, status=409)
         domain.delete()
         return Response(status=204)
 
@@ -1062,9 +1061,9 @@ class DomainDetailView(APIView):
         security=[{'Bearer': []}],
     )
     def patch(self, request, pk):
-        if "status" in request.data:
-            return Response({"error": "Use the ownership proof flow; status cannot activate domains."}, status=400)
         domain = self._get_domain(pk)
+        if is_pilot_host(domain.domain):
+            return Response({"error": "The Arnatech pilot domain is managed through approved ownership proof."}, status=409)
         if "is_primary_frontend" in request.data:
             make_primary = bool(request.data.get("is_primary_frontend"))
             if make_primary:
@@ -1073,8 +1072,15 @@ class DomainDetailView(APIView):
                     is_primary_frontend=True,
                 ).update(is_primary_frontend=False)
                 domain.is_primary_frontend = True
-        if "is_primary_frontend" in request.data:
-            domain.save(update_fields=["is_primary_frontend"])
+        if "status" in request.data and request.data.get("status") in {
+            Domain.STATUS_ACTIVE,
+            Domain.STATUS_PENDING,
+            Domain.STATUS_FAILED,
+        }:
+            domain.status = request.data["status"]
+            if domain.status == Domain.STATUS_ACTIVE:
+                domain.verified_at = timezone.now()
+        domain.save()
         return Response(DomainSerializer(domain).data, status=200)
 
 
@@ -1118,7 +1124,7 @@ class PublicDomainResolveView(APIView):
 
         with schema_context("public"):
             domain = Domain.objects.select_related("tenant").filter(domain=host).first()
-            if not domain or not domain_has_required_proof(domain):
+            if not domain:
                 return Response({"error": "Domain not found."}, status=404)
 
             backend = (

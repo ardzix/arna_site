@@ -17,7 +17,9 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
     DOMAIN_VERCEL_RECEIPT_KEY,
     DOMAIN_VERCEL_API_TOKEN,
     DOMAIN_VERCEL_PROOF_BINDINGS,
+    DOMAIN_VERCEL_PROOF_OPERATOR_ID,
 ) = read_vercel_proof_config(os.environ, SECRET_KEY)
+DOMAIN_VERCEL_CHAT_ROUTING_ENABLED = os.getenv('DOMAIN_VERCEL_CHAT_ROUTING_ENABLED') == 'true'
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
