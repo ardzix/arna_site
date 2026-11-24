@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from .runtime_env import load_runtime_env
+from .domain_proof_config import read_vercel_proof_config
 
 load_runtime_env()
 load_dotenv()
@@ -11,6 +12,12 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
+(
+    DOMAIN_VERCEL_PROOF_ENABLED,
+    DOMAIN_VERCEL_RECEIPT_KEY,
+    DOMAIN_VERCEL_API_TOKEN,
+    DOMAIN_VERCEL_PROOF_BINDINGS,
+) = read_vercel_proof_config(os.environ, SECRET_KEY)
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

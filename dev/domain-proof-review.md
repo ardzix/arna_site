@@ -43,3 +43,7 @@ PyPI django-tenants3.6.1 publishes only source distribution, no wheel. The initi
 
 ## Existing baseline migration drift
 The no-DB autodetector reports AlterField Tenant.schema_name. This candidate leaves Tenant source unchanged. CI compares the entire Tenant AST to exact baseline a4e66d20dcf915e874b0291117e0d6b063df6eb4 and allows precisely that unchanged field operation; all new ownership drift fails. This is NOT a globally clean migration claim. Actual PostgreSQL migration and review of the pre-existing schema drift remain release gates.
+
+
+## Runtime configuration adapter (draft, disabled)
+The real Django settings module can now read the existing managed JSON runtime secret. Unless `DOMAIN_VERCEL_PROOF_ENABLED` is exactly `true`, it ignores all other proof settings and makes no provider calls. Approved rollout requires a dedicated `DOMAIN_VERCEL_RECEIPT_KEY`, a separately managed least-privilege `DOMAIN_VERCEL_API_TOKEN`, and a `DOMAIN_VERCEL_PROOF_BINDINGS` JSON string mapping the preapproved public tenant UUID to an exact host, organization UUID, Vercel project ID and team ID; never check in actual credentials or repurpose a Django key. A malformed enabled configuration prevents startup without printing values. Configurability is not authorization to establish provider trust or enable either production flag. The candidate and credentials remain off.

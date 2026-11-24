@@ -113,3 +113,37 @@ class PolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RuntimeProofConfigTests(unittest.TestCase):
+    def setUp(self):
+        import json
+        from config.domain_proof_config import read_vercel_proof_config
+        self.read = read_vercel_proof_config
+        self.env = {
+            "DOMAIN_VERCEL_PROOF_ENABLED": "true",
+            "DOMAIN_VERCEL_RECEIPT_KEY": KEY,
+            "DOMAIN_VERCEL_API_TOKEN": "synthetic-credential",
+            "DOMAIN_VERCEL_PROOF_BINDINGS": json.dumps({SNAPSHOT["tenant_id"]: BINDING}),
+        }
+
+    def test_explicit_opt_in_only(self):
+        for flag in ("", "false", "TRUE", "1"):
+            self.assertEqual(self.read({**self.env, "DOMAIN_VERCEL_PROOF_ENABLED": flag}, KEY),
+                             (False, "", "", {}))
+        self.assertEqual(self.read(self.env, "different-django-key"),
+                         (True, KEY, "synthetic-credential", {SNAPSHOT["tenant_id"]: BINDING}))
+
+    def test_incomplete_ambiguous_or_reused_credentials_rejected_without_value_echo(self):
+        for changes, django_key in (
+            ({"DOMAIN_VERCEL_RECEIPT_KEY": "not-dedicated"}, "different"),
+            ({}, KEY),
+            ({"DOMAIN_VERCEL_API_TOKEN": KEY}, "different"),
+            ({"DOMAIN_VERCEL_API_TOKEN": "should-not-log-this\n"}, "different"),
+            ({"DOMAIN_VERCEL_PROOF_BINDINGS": '{"same":{},"same":{}}'}, "different"),
+            ({"DOMAIN_VERCEL_PROOF_BINDINGS": "🚫 secret data"}, "different"),
+        ):
+            with self.subTest(keys=tuple(changes)):
+                with self.assertRaises(RuntimeError) as error:
+                    self.read({**self.env, **changes}, django_key)
+                self.assertEqual(str(error.exception),
+                                 "Vercel ownership proof configuration rejected; inspect managed settings privately.")
