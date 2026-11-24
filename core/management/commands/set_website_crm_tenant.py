@@ -41,7 +41,7 @@ class Command(BaseCommand):
                 ) if target_id else None
             except Tenant.DoesNotExist:
                 raise CommandError("Website owner and CRM destination must be active in this organization.") from None
-            rows = list(Domain.objects.select_for_update().select_related("tenant", "crm_tenant").filter(
+            rows = list(Domain.objects.select_for_update(of=("self",)).select_related("tenant", "crm_tenant").filter(
                 tenant=owner, domain__in=hosts,
                 role__in=[Domain.ROLE_FRONTEND_CUSTOM, Domain.ROLE_FRONTEND_DEFAULT],
                 status=Domain.STATUS_ACTIVE, verified_at__isnull=False,
