@@ -21,7 +21,7 @@ class WebsiteContextTest(SimpleTestCase):
 
     def test_aliases_keep_the_same_public_uuid_identity(self):
         tenant = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
-        domain = SimpleNamespace(tenant=tenant)
+        domain = SimpleNamespace(tenant=tenant, crm_tenant=None)
         for host in ["customer.bisnisnaikkelas.com", "customer-alias.example.com"]:
             response, manager = self.call(host, domain)
             self.assertEqual(response.status_code, 200)
@@ -44,6 +44,42 @@ class WebsiteContextTest(SimpleTestCase):
             manager.select_related.assert_not_called()
 
     def test_legacy_numeric_or_invalid_identity_fails_closed(self):
-        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68))
+        domain = SimpleNamespace(tenant=SimpleNamespace(sso_organization_id="not-an-org", public_id=68), crm_tenant=None)
         response, _ = self.call("customer.example.com", domain)
         self.assertEqual(response.status_code, 503)
+
+    def test_crm_destination_keeps_website_owner_and_routes_only_crm(self):
+        owner = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
+        target = SimpleNamespace(sso_organization_id=owner.sso_organization_id, public_id=uuid4(), is_active=True)
+        domain = SimpleNamespace(tenant=owner, crm_tenant=target)
+        response, _ = self.call("customer.example.com", domain)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["tenant_id"], str(target.public_id))
+        self.assertEqual(response.data["organization_id"], str(owner.sso_organization_id))
+        self.assertIs(domain.tenant, owner)
+
+    def test_inactive_cross_org_or_malformed_destination_fails_closed(self):
+        owner = SimpleNamespace(sso_organization_id=uuid4(), public_id=uuid4())
+        for active, org, identity in [(False, owner.sso_organization_id, uuid4()),
+                                      (True, uuid4(), uuid4()),
+                                      (True, "invalid", uuid4()),
+                                      (True, owner.sso_organization_id, "invalid")]:
+            with self.subTest(active=active, org=org, identity=identity):
+                target = SimpleNamespace(is_active=active, sso_organization_id=org, public_id=identity)
+                response, _ = self.call("customer.example.com", SimpleNamespace(tenant=owner, crm_tenant=target))
+                self.assertEqual(response.status_code, 503)
+
+
+class WebsiteCRMDestinationValidationTest(SimpleTestCase):
+    def test_domain_model_rejects_inactive_or_other_org_destination(self):
+        from django.core.exceptions import ValidationError
+        from core.models import Tenant
+
+        org = str(uuid4())
+        owner = Tenant(pk=1, sso_organization_id=org)
+        for active, target_org in [(False, org), (True, str(uuid4())), (True, "invalid")]:
+            domain = Domain(tenant=owner, crm_tenant=Tenant(pk=2, sso_organization_id=target_org, is_active=active))
+            with self.assertRaises(ValidationError):
+                domain.clean()
+        Domain(tenant=owner, crm_tenant=Tenant(pk=2, sso_organization_id=org, is_active=True)).clean()
+        Domain(tenant=owner).clean()
