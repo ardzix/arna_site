@@ -8,7 +8,7 @@ def require_pending_custom_proof(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0007_tenant_public_id")]
+    dependencies = [("core", "0008_domain_crm_tenant")]
     operations = [
         migrations.AddField(model_name="domain", name="ownership_proof_required", field=models.BooleanField(default=False)),
         migrations.RunPython(require_pending_custom_proof, migrations.RunPython.noop),

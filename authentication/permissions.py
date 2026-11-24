@@ -36,16 +36,25 @@ class IsTenantMember(BasePermission):
         return tenant.schema_name == user.tenant_schema
 
 class IsTenantAdmin(BasePermission):
-    """
-    Passes only if:
-    1. User is authenticated (has SSOUser)
-    2. User has 'site_admin' in their roles (dari JWT claim)
+    """Preserve site_admin; also honor an org-bound, signed CMS grant.
+
+    The permission branch requires both organization IDs, even for legacy
+    requests where IsTenantMember can fall back to the shared schema name.
     """
     def has_permission(self, request, view):
         user = request.user
-        if not hasattr(user, 'roles'):
+        roles = getattr(user, 'roles', [])
+        if isinstance(roles, list) and 'site_admin' in roles:
+            return True
+        grants = getattr(user, 'permissions', [])
+        if (getattr(user, 'is_authenticated', False) is not True
+                or not isinstance(grants, list)
+                or 'arnasite.cms.manage' not in grants):
             return False
-        return 'site_admin' in user.roles
+        tenant = getattr(connection, 'tenant', None)
+        user_org = str(getattr(user, 'org_id', '') or '')
+        tenant_org = str(getattr(tenant, 'sso_organization_id', '') or '')
+        return bool(user_org and tenant_org and user_org == tenant_org)
 
 class IsTenantOwner(BasePermission):
     """

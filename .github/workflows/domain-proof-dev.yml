@@ -80,12 +80,13 @@ jobs:
           assert tenant_ast(baseline) == tenant_ast(pathlib.Path("core/models.py").read_text())
           operations = [op for migration in changes.get("core", []) for op in migration.operations]
           from django.db.migrations.operations.fields import AlterField
-          assert len(operations) == 1 and isinstance(operations[0], AlterField)
-          op = operations[0]
-          assert (op.model_name, op.name) == ("tenant", "schema_name"), op
-          from core.models import Tenant
-          assert op.field.deconstruct()[1:] == Tenant._meta.get_field("schema_name").deconstruct()[1:]
-          print("Ownership migration-model state agrees; baseline Tenant.schema_name drift unchanged (explicit exception). No DB connection.")
+          assert len(operations) <= 1, operations
+          if operations:
+              op = operations[0]
+              assert isinstance(op, AlterField) and (op.model_name, op.name) == ("tenant", "schema_name"), op
+              from core.models import Tenant
+              assert op.field.deconstruct()[1:] == Tenant._meta.get_field("schema_name").deconstruct()[1:]
+          print("Ownership migration-model state agrees; no drift outside explicit baseline Tenant.schema_name exception. No DB connection.")
           PY
 
       - name: Fresh resource admission before disposable PostgreSQL

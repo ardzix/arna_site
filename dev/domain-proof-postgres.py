@@ -29,28 +29,33 @@ print(json.dumps({"boundary": "disposable GitHub-hosted job / owned PostgreSQL c
                   "server_version_num": version, "database": database, "provider": "synthetic",
                   "auth": "forced synthetic user; not JWT/SSO validation"}), flush=True)
 
-BASE = ("core", "0007_tenant_public_id")
-HEAD = ("core", "0008_domain_ownership_proof")
+BASE = ("core", "0008_domain_crm_tenant")
+HEAD = ("core", "0009_domain_ownership_proof")
 executor = MigrationExecutor(connection)
 executor.migrate([BASE])
 old = executor.loader.project_state([BASE]).apps
 OldTenant, OldDomain = old.get_model("core", "Tenant"), old.get_model("core", "Domain")
 tenant = OldTenant.objects.create(schema_name="public", name="Synthetic migration fixture",
                                   slug="migration-" + uuid.uuid4().hex, sso_organization_id=str(uuid.uuid4()))
-legacy = OldDomain.objects.create(tenant=tenant, domain="legacy.example.test", role="frontend_custom",
-                                  status="active", verified_at=timezone.now(), is_primary=False)
+crm = OldTenant.objects.create(schema_name="public", name="Synthetic CRM destination",
+                               slug="migration-" + uuid.uuid4().hex,
+                               sso_organization_id=tenant.sso_organization_id)
+legacy = OldDomain.objects.create(tenant=tenant, crm_tenant=crm, domain="legacy.example.test",
+                                  role="frontend_custom", status="active",
+                                  verified_at=timezone.now(), is_primary=False)
 pending = OldDomain.objects.create(tenant=tenant, domain="pending.example.test", role="frontend_custom",
                                    status="pending_verification", verification_token=uuid.uuid4().hex,
                                    verification_method="txt", is_primary=False)
 default = OldDomain.objects.create(tenant=tenant, domain="default.example.test", role="frontend_default",
                                    status="active", verified_at=timezone.now(), is_primary=False)
-preserved = {item.pk: (item.domain, item.status, item.verified_at, item.verification_token)
+preserved = {item.pk: (item.domain, item.status, item.verified_at, item.verification_token, item.crm_tenant_id)
              for item in (legacy, pending, default)}
 executor = MigrationExecutor(connection)
 executor.migrate([HEAD])
 from core.models import Domain, DomainOwnershipAudit
 assert Domain.objects.get(pk=pending.pk).ownership_proof_required is True
 assert Domain.objects.get(pk=legacy.pk).ownership_proof_required is False
+assert Domain.objects.get(pk=legacy.pk).crm_tenant_id == crm.pk
 assert Domain.objects.get(pk=default.pk).ownership_proof_required is False
 print(json.dumps({"migration_forward": "passed", "pending_requires_proof": True,
                   "existing_active_legacy_preserved": True}), flush=True)
@@ -74,7 +79,7 @@ OldDomain = old.get_model("core", "Domain")
 assert dict(OldDomain.objects.values_list("pk", "domain")) == before_domains
 for pk, expected in preserved.items():
     item = OldDomain.objects.get(pk=pk)
-    assert (item.domain, item.status, item.verified_at, item.verification_token) == expected
+    assert (item.domain, item.status, item.verified_at, item.verification_token, item.crm_tenant_id) == expected
 with connection.cursor() as cursor:
     cursor.execute("SELECT to_regclass('public.core_domainownershipaudit')")
     assert cursor.fetchone()[0] is None
@@ -86,6 +91,7 @@ MigrationExecutor(connection).migrate([HEAD])
 assert DomainOwnershipAudit.objects.count() == 0
 assert Domain.objects.get(pk=pending.pk).ownership_proof_required is True
 assert Domain.objects.get(pk=legacy.pk).ownership_proof_required is False
+assert Domain.objects.get(pk=legacy.pk).crm_tenant_id == crm.pk
 print(json.dumps({"migration_reapply": "passed", "reverse_reapply_restores_audit": False,
                   "warning": "Reverse DDL loses proof history. Never use as production rollback without separate reviewed restoration."}), flush=True)
 connection.close()
