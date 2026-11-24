@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 from django_tenants.models import TenantMixin, DomainMixin
+from django_tenants.postgresql_backend.base import _check_schema_name
 
 
 class Tenant(TenantMixin):
@@ -29,7 +30,7 @@ class Tenant(TenantMixin):
     ]
 
     # Override TenantMixin field to allow multiple tenant rows reusing one shared schema.
-    schema_name = models.CharField(max_length=63, db_index=True)
+    schema_name = models.CharField(max_length=63, db_index=True, validators=[_check_schema_name])
     # Stable cross-service identity. `id` remains the legacy database primary
     # key and must never be used as a public tenant identifier.
     public_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
