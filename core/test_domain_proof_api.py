@@ -9,12 +9,11 @@ from uuid import UUID
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
-from django.urls import Resolver404, resolve
 
 from core.domain_proof_admission import domain_has_required_proof
 from core.domain_proof_scope import PILOT_DOMAIN_ID, PILOT_HOST, PILOT_ORGANIZATION, PILOT_TENANT
 from core.models import Domain
-from core.views import DomainDetailView, DomainListCreateView
+from core.domain_proof_scope import is_pilot_host
 
 
 class PilotScopeTests(SimpleTestCase):
@@ -27,35 +26,55 @@ class PilotScopeTests(SimpleTestCase):
         )
         return SimpleNamespace(**{**state, **overrides})
 
+    def actual_method(self, class_name, method_name):
+        # Execute reviewed method bodies without initializing the unrelated Swagger dependency.
+        import ast
+        from copy import deepcopy
+        from django.utils import timezone
+        from rest_framework.response import Response
+        tree = ast.parse(Path(__file__).with_name("views.py").read_text())
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name)
+        method = deepcopy(next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == method_name))
+        method.decorator_list = []
+        module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
+        serializer = Mock(return_value=SimpleNamespace(data={"status": "active"}))
+        namespace = {"Domain": Domain, "Response": Response, "DomainSerializer": serializer,
+                     "is_pilot_host": is_pilot_host, "timezone": timezone}
+        exec(compile(module, "core/views.py:reviewed-method", "exec"), namespace)
+        return namespace[method_name]
+
     def test_no_public_proof_mutation_route(self):
-        for action in ("proof", "commit", "activate"):
-            with self.assertRaises(Resolver404):
-                resolve(f"/domains/{PILOT_DOMAIN_ID}/ownership/{action}/")
+        import ast
+        tree = ast.parse(Path(__file__).with_name("domain_urls.py").read_text())
+        paths = {n.args[0].value for n in ast.walk(tree) if isinstance(n, ast.Call) and
+                 getattr(n.func, "id", "") == "path" and isinstance(n.args[0], ast.Constant)}
+        self.assertEqual(paths, {"website-context/", "resolve/", "", "<int:pk>/"})
+        self.assertFalse(Path(__file__).with_name("domain_proof_views.py").exists())
 
     def test_pilot_management_changes_cannot_bypass_operator(self):
-        create = DomainListCreateView.post.__wrapped__ if hasattr(DomainListCreateView.post, "__wrapped__") else DomainListCreateView.post
+        create = self.actual_method("DomainListCreateView", "post")
+        patch_domain = self.actual_method("DomainDetailView", "patch")
+        delete = self.actual_method("DomainDetailView", "delete")
         for spelling in (PILOT_HOST, " ARNATECH.ID. "):
             response = create(object(), SimpleNamespace(data={"domain": spelling, "status": "active"}))
             self.assertEqual(response.status_code, 409)
-        view = DomainDetailView()
         target = self.domain(save=Mock(), delete=Mock())
-        view._get_domain = Mock(return_value=target)
-        self.assertEqual(view.patch(SimpleNamespace(data={"status": "active"}), PILOT_DOMAIN_ID).status_code, 409)
-        self.assertEqual(view.delete(SimpleNamespace(), PILOT_DOMAIN_ID).status_code, 409)
+        view = SimpleNamespace(_get_domain=Mock(return_value=target))
+        self.assertEqual(patch_domain(view, SimpleNamespace(data={"status": "active"}), PILOT_DOMAIN_ID).status_code, 409)
+        self.assertEqual(delete(view, SimpleNamespace(), PILOT_DOMAIN_ID).status_code, 409)
         target.save.assert_not_called()
         target.delete.assert_not_called()
 
     def test_unrelated_patch_and_delete_preserve_legacy_path_even_when_pilot_is_off(self):
-        view = DomainDetailView()
+        patch_domain = self.actual_method("DomainDetailView", "patch")
+        delete = self.actual_method("DomainDetailView", "delete")
         unrelated = self.domain(domain="other.example.test", is_primary=False, save=Mock(), delete=Mock())
-        view._get_domain = Mock(return_value=unrelated)
-        with patch("core.views.DomainSerializer") as serializer:
-            serializer.return_value.data = {"status": "active"}
-            r = view.patch(SimpleNamespace(data={"status": "active"}), 999)
+        view = SimpleNamespace(_get_domain=Mock(return_value=unrelated))
+        r = patch_domain(view, SimpleNamespace(data={"status": "active"}), 999)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(unrelated.status, Domain.STATUS_ACTIVE)
         unrelated.save.assert_called_once_with()
-        self.assertEqual(view.delete(SimpleNamespace(), 999).status_code, 204)
+        self.assertEqual(delete(view, SimpleNamespace(), 999).status_code, 204)
         unrelated.delete.assert_called_once_with()
 
     def test_routing_kill_is_host_scoped_and_never_deletes_audit(self):

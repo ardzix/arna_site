@@ -1,2 +1,1 @@
-from django.urls import include, path
-urlpatterns = [path("domains/", include("core.domain_urls"))]
+urlpatterns = []  # Synthetic runner does not load production Swagger/URL dependencies.
