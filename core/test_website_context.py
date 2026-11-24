@@ -77,11 +77,11 @@ class WebsiteContextTest(SimpleTestCase):
         owner = SimpleNamespace(sso_organization_id=PILOT_ORGANIZATION, public_id=UUID(PILOT_TENANT), is_active=True)
         domain = SimpleNamespace(
             tenant=owner, crm_tenant=None, role=Domain.ROLE_FRONTEND_CUSTOM,
-            status=Domain.STATUS_ACTIVE, verified_at=True, verification_method="vercel-api-v1",
+            status=Domain.STATUS_ACTIVE, verified_at=True, verification_method="https-origin-v1",
             domain=PILOT_HOST, pk=PILOT_DOMAIN_ID,
         )
         self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 404)
-        with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=True), patch(
+        with override_settings(DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=True), patch(
             "core.domain_proof_admission.DomainOwnershipAudit.objects"
         ) as audit:
             audit.filter.return_value.exists.return_value = False

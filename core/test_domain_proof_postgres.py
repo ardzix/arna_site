@@ -15,7 +15,7 @@ from django.utils import timezone
 from core.models import Tenant, Domain, DomainOwnershipAudit
 from core.domain_proof_admission import domain_has_required_proof
 from core.domain_proof_policy import ProofError, read_receipt, issue_receipt
-from core.domain_proof_operator import inspect_proof, apply_proof
+from core.domain_proof_operator import inspect_proof, apply_proof, issue_challenge
 
 KEY = "synthetic-disposable-postgres-receipt-key-only"
 
@@ -35,31 +35,29 @@ class RealPostgresTests(unittest.TestCase):
             tenant=self.tenant, domain="proof-" + uuid.uuid4().hex + ".example.test",
             role=Domain.ROLE_FRONTEND_CUSTOM, status=Domain.STATUS_PENDING,
             verification_token=uuid.uuid4().hex, verification_method="txt", is_primary=False)
-        self.binding = {"host": self.domain.domain, "organization_id": self.org,
-                        "project_id": "prj_synthetic", "team_id": "team_synthetic"}
-        self.evidence = {"provider": "vercel-api-v1", "host": self.domain.domain,
-                         "project_id": "prj_synthetic", "team_id": "team_synthetic", "verified": True}
+        self.evidence = {"provider": "https-origin-v1", "host": self.domain.domain,
+                         "path": "/.well-known/arnatech-bnk-verification/",
+                         "challenge_hash": "1" * 64, "tls_verified": True}
         self.scope = patch.multiple("core.domain_proof_scope", PILOT_HOST=self.domain.domain,
                                     PILOT_DOMAIN_ID=self.domain.pk, PILOT_TENANT=str(self.tenant.public_id),
                                     PILOT_ORGANIZATION=self.org)
         self.scope.start()
         self.addCleanup(self.scope.stop)
         self.settings = override_settings(
-            DOMAIN_VERCEL_PROOF_ENABLED=True, DOMAIN_VERCEL_RECEIPT_KEY=KEY,
-            DOMAIN_VERCEL_PROOF_OPERATOR_ID=self.user.id, DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=True,
-            DOMAIN_VERCEL_API_TOKEN="synthetic-not-a-real-token",
-            DOMAIN_VERCEL_PROOF_BINDINGS={str(self.tenant.public_id): self.binding})
+            DOMAIN_HTTPS_PROOF_ENABLED=True, DOMAIN_HTTPS_RECEIPT_KEY=KEY,
+            DOMAIN_HTTPS_PROOF_OPERATOR_ID=self.user.id, DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=True)
         self.settings.enable()
+        self.manifest = issue_challenge()["manifest"]
         self.addCleanup(self.settings.disable)
-        self.provider = patch("core.domain_proof_operator.fetch_verified_evidence", return_value=self.evidence).start()
+        self.provider = patch("core.domain_proof_operator.fetch_https_evidence", return_value=self.evidence).start()
         self.addCleanup(patch.stopall)
 
     def proof(self):
-        return inspect_proof()
+        return inspect_proof(self.manifest)
 
     def commit(self, receipt):
         try:
-            apply_proof(receipt)
+            apply_proof(receipt, self.manifest)
             return SimpleNamespace(status_code=200)
         except ProofError:
             return SimpleNamespace(status_code=409)
@@ -162,7 +160,7 @@ class RealPostgresTests(unittest.TestCase):
         def clock_read(value, key):
             return read_receipt(value, key, now=clock[0])
         self.provider.side_effect = observed
-        with patch("core.domain_proof_operator.read_receipt", side_effect=clock_read):
+        with patch("core.domain_proof_operator.read_commit_receipt", side_effect=clock_read):
             with transaction.atomic():
                 Tenant.objects.select_for_update().get(pk=self.tenant.pk)
                 worker = threading.Thread(target=self.thread_commit,
@@ -215,7 +213,7 @@ class RealPostgresTests(unittest.TestCase):
 
     def test_bare_status_and_timestamp_without_matching_audit_do_not_admit(self):
         Domain.objects.filter(pk=self.domain.pk).update(
-            status=Domain.STATUS_ACTIVE, verified_at=timezone.now(), verification_method="vercel-api-v1")
+            status=Domain.STATUS_ACTIVE, verified_at=timezone.now(), verification_method="https-origin-v1")
         self.persisted()
         self.assertFalse(domain_has_required_proof(self.domain))
 
@@ -223,10 +221,10 @@ class RealPostgresTests(unittest.TestCase):
         receipt = self.proof()
         self.assertEqual(self.commit(receipt).status_code, 200)
         audit = self.persisted().get()
-        with override_settings(DOMAIN_VERCEL_PROOF_ENABLED=False):
+        with override_settings(DOMAIN_HTTPS_PROOF_ENABLED=False):
             self.assertEqual(self.commit(receipt).status_code, 409)
             self.assertTrue(domain_has_required_proof(self.domain))
-        with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=False):
+        with override_settings(DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=False):
             self.assertFalse(domain_has_required_proof(self.domain))
         self.assertTrue(DomainOwnershipAudit.objects.filter(pk=audit.pk).exists())
         self.assertEqual(self.persisted().count(), 1)

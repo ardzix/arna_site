@@ -54,7 +54,7 @@ jobs:
           timeout 45s python - <<'PY'
           import django, unittest
           django.setup()
-          modules = ["core.test_domain_proof_policy", "core.test_vercel_proof_transport", "core.test_domain_proof_api", "core.test_website_context"]
+          modules = ["core.test_domain_proof_policy", "core.test_https_proof_transport", "core.test_domain_proof_api", "core.test_website_context"]
           suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
           result = unittest.TextTestRunner(verbosity=2).run(suite)
           raise SystemExit(not result.wasSuccessful())

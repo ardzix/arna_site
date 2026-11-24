@@ -27,7 +27,7 @@ with connection.cursor() as cursor:
     assert cursor.fetchone()[0] == 0, "Database is not fresh."
 print(json.dumps({"boundary": "disposable GitHub-hosted job / owned PostgreSQL container / tmpfs data",
                   "server_version_num": version, "database": database, "provider": "synthetic",
-                  "auth": "synthetic managed operator; no external authentication"}), flush=True)
+                  "auth": "synthetic managed HTTPS operator; no external authentication"}), flush=True)
 
 BASE = ("core", "0008_domain_crm_tenant")
 HEAD = ("core", "0009_domain_ownership_proof")

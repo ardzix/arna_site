@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from .runtime_env import load_runtime_env
-from .domain_proof_config import read_vercel_proof_config
+from .domain_proof_config import read_https_proof_config
 
 load_runtime_env()
 load_dotenv()
@@ -12,14 +12,9 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key')
-(
-    DOMAIN_VERCEL_PROOF_ENABLED,
-    DOMAIN_VERCEL_RECEIPT_KEY,
-    DOMAIN_VERCEL_API_TOKEN,
-    DOMAIN_VERCEL_PROOF_BINDINGS,
-    DOMAIN_VERCEL_PROOF_OPERATOR_ID,
-) = read_vercel_proof_config(os.environ, SECRET_KEY)
-DOMAIN_VERCEL_CHAT_ROUTING_ENABLED = os.getenv('DOMAIN_VERCEL_CHAT_ROUTING_ENABLED') == 'true'
+(DOMAIN_HTTPS_PROOF_ENABLED, DOMAIN_HTTPS_RECEIPT_KEY, DOMAIN_HTTPS_PROOF_OPERATOR_ID
+ ) = read_https_proof_config(os.environ, SECRET_KEY)
+DOMAIN_HTTPS_CHAT_ROUTING_ENABLED = os.getenv('DOMAIN_HTTPS_CHAT_ROUTING_ENABLED') == 'true'
 DEBUG = os.getenv('DEBUG', 'False').lower() in ('true', '1', 'yes')
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 

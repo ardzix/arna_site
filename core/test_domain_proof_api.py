@@ -20,7 +20,7 @@ class PilotScopeTests(SimpleTestCase):
     def domain(self, **overrides):
         state = dict(
             pk=PILOT_DOMAIN_ID, domain=PILOT_HOST, role=Domain.ROLE_FRONTEND_CUSTOM,
-            status=Domain.STATUS_ACTIVE, verified_at=object(), verification_method="vercel-api-v1",
+            status=Domain.STATUS_ACTIVE, verified_at=object(), verification_method="https-origin-v1",
             tenant=SimpleNamespace(public_id=UUID(PILOT_TENANT), sso_organization_id=PILOT_ORGANIZATION,
                                    is_active=True),
         )
@@ -80,11 +80,11 @@ class PilotScopeTests(SimpleTestCase):
     def test_routing_kill_is_host_scoped_and_never_deletes_audit(self):
         with patch("core.domain_proof_admission.DomainOwnershipAudit.objects") as audit:
             audit.filter.return_value.exists.return_value = True
-            with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=False):
+            with override_settings(DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=False):
                 self.assertFalse(domain_has_required_proof(self.domain()))
                 self.assertTrue(domain_has_required_proof(self.domain(domain="other.example.test")))
                 audit.filter.assert_not_called()
-            with override_settings(DOMAIN_VERCEL_CHAT_ROUTING_ENABLED=True):
+            with override_settings(DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=True):
                 self.assertFalse(domain_has_required_proof(self.domain(pk=999)))
                 self.assertTrue(domain_has_required_proof(self.domain()))
                 audit.filter.assert_called_once()
@@ -94,38 +94,43 @@ class PilotScopeTests(SimpleTestCase):
 
 
 class OperatorCommandTests(SimpleTestCase):
-    def test_default_is_dry_run_and_does_not_echo_the_receipt(self):
+    def test_challenge_issuance_is_local_and_dry_run_never_applies_or_echoes_material(self):
         output = StringIO()
-        with patch("core.management.commands.verify_arnatech_chat_domain.inspect_proof", return_value="synthetic-secret") as inspect, patch(
-            "core.management.commands.verify_arnatech_chat_domain.apply_proof"
-        ) as apply:
-            call_command("verify_arnatech_chat_domain", stdout=output)
-            inspect.assert_called_once_with()
+        root = "core.management.commands.verify_arnatech_chat_domain."
+        with TemporaryDirectory() as tmp, patch(root + "issue_challenge",
+            return_value={"manifest": "synthetic-manifest", "publish_value": "synthetic-value"}) as issue, patch(
+            root + "inspect_proof", return_value="synthetic-receipt"
+        ) as inspect, patch(root + "apply_proof") as apply:
+            challenge = Path(tmp) / "challenge"
+            receipt = Path(tmp) / "receipt"
+            call_command("verify_arnatech_chat_domain", "--issue-challenge", str(challenge), stdout=output)
+            issue.assert_called_once_with()
+            inspect.assert_not_called()
             apply.assert_not_called()
-        self.assertIn("Dry run", output.getvalue())
-        self.assertNotIn("synthetic-secret", output.getvalue())
-
-    def test_command_passes_only_an_operator_owned_private_file_and_no_target_arguments(self):
-        output = StringIO()
-        with TemporaryDirectory() as tmp, patch(
-            "core.management.commands.verify_arnatech_chat_domain.inspect_proof", return_value="synthetic-secret"
-        ), patch("core.management.commands.verify_arnatech_chat_domain.apply_proof") as apply:
-            path = Path(tmp) / "receipt"
-            call_command("verify_arnatech_chat_domain", "--write-receipt", str(path), stdout=output)
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(challenge.stat().st_mode & 0o777, 0o600)
+            call_command("verify_arnatech_chat_domain", "--challenge-file", str(challenge), stdout=output)
+            inspect.assert_called_once_with("synthetic-manifest")
             apply.assert_not_called()
+            self.assertFalse(receipt.exists())
+            call_command("verify_arnatech_chat_domain", "--challenge-file", str(challenge), "--write-receipt", str(receipt),
+                         stdout=output)
+            self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
             link = Path(tmp) / "link"
-            link.symlink_to(path)
+            link.symlink_to(receipt)
             for bad_path in (link, Path(tmp) / "missing"):
                 with self.assertRaises(CommandError):
-                    call_command("verify_arnatech_chat_domain", "--apply-receipt", str(bad_path), stdout=output)
-            path.chmod(0o644)
+                    call_command("verify_arnatech_chat_domain", "--challenge-file", str(challenge),
+                                 "--apply-receipt", str(bad_path), stdout=output)
+            receipt.chmod(0o644)
             with self.assertRaises(CommandError):
-                call_command("verify_arnatech_chat_domain", "--apply-receipt", str(path), stdout=output)
+                call_command("verify_arnatech_chat_domain", "--challenge-file", str(challenge),
+                             "--apply-receipt", str(receipt), stdout=output)
             apply.assert_not_called()
-            path.chmod(0o600)
-            call_command("verify_arnatech_chat_domain", "--apply-receipt", str(path), stdout=output)
-            apply.assert_called_once_with("synthetic-secret")
+            receipt.chmod(0o600)
+            call_command("verify_arnatech_chat_domain", "--challenge-file", str(challenge),
+                         "--apply-receipt", str(receipt), stdout=output)
+            apply.assert_called_once_with("synthetic-receipt", "synthetic-manifest")
             with self.assertRaises(CommandError):
                 call_command("verify_arnatech_chat_domain", "--host", "other.example.test", stdout=output)
-        self.assertNotIn("synthetic-secret", output.getvalue())
+        self.assertIn("Dry run", output.getvalue())
+        self.assertNotIn("synthetic-", output.getvalue())

@@ -1,4 +1,4 @@
-"""Vercel evidence policy and private, short-lived ArnaSite receipts. No network/DB."""
+"""Private, purpose-separated ArnaSite receipts. No network/DB."""
 import base64
 import hashlib
 import hmac
@@ -8,7 +8,9 @@ import time
 from uuid import UUID
 
 TTL = 120
-SALT = b"arnasite:domain-proof:vercel:v1:"
+SALT = b"arnasite:domain-proof:https-receipt:v1:"
+CHALLENGE_SALT = b"arnasite:domain-proof:https-challenge:v1:"
+CHALLENGE_TTL = 900
 HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{4,100}")
 
@@ -47,33 +49,6 @@ def validate_snapshot(value):
     return value
 
 
-def binding_for(snapshot, bindings):
-    validate_snapshot(snapshot)
-    binding = bindings.get(snapshot["tenant_id"]) if isinstance(bindings, dict) else None
-    if not isinstance(binding, dict) or set(binding) != {"host", "organization_id", "project_id", "team_id"}:
-        raise ProofError("binding_unconfigured")
-    if binding["host"] != snapshot["host"] or binding["organization_id"] != snapshot["organization_id"]:
-        raise ProofError("binding_mismatch")
-    for key, prefix in (("project_id", "prj_"), ("team_id", "team_")):
-        if not isinstance(binding[key], str) or not binding[key].startswith(prefix) or not IDENTIFIER.fullmatch(binding[key]):
-            raise ProofError("binding_unconfigured")
-    return dict(binding)
-
-
-def verified_evidence(project, domain, binding):
-    # These must come from authenticated fixed-api.vercel.com GETs, never request JSON.
-    if not isinstance(project, dict) or project.get("id") != binding["project_id"] or project.get("accountId") != binding["team_id"]:
-        raise ProofError("provider_owner_mismatch")
-    if not isinstance(domain, dict) or domain.get("name") != binding["host"] or domain.get("projectId") != binding["project_id"]:
-        raise ProofError("provider_domain_mismatch")
-    if domain.get("verified") is not True:
-        raise ProofError("provider_domain_unverified")
-    if any(domain.get(key) is not None for key in ("gitBranch", "customEnvironmentId", "redirect")):
-        raise ProofError("provider_not_production_domain")
-    # Only nonsecret identity/verification evidence is retained; not the entire API response.
-    return {"provider": "vercel-api-v1", "host": binding["host"], "project_id": binding["project_id"],
-            "team_id": binding["team_id"], "verified": True}
-
 
 def receipt_key(key):
     if not isinstance(key, str) or len(key.encode("utf-8")) < 32:
@@ -81,24 +56,24 @@ def receipt_key(key):
     return key.encode("utf-8")
 
 
-def issue_receipt(snapshot, binding, evidence, key, now=None):
+def issue_receipt(snapshot, binding, evidence, key, now=None, *, ttl=TTL, salt=SALT):
     validate_snapshot(snapshot)
     now = int(time.time()) if now is None else now
     claims = {"v": 1, "snapshot": snapshot, "binding": binding, "evidence_hash": digest(canonical(evidence)),
-              "iat": now, "exp": now + TTL}
+              "iat": now, "exp": now + ttl}
     payload = base64.urlsafe_b64encode(canonical(claims).encode()).rstrip(b"=")
-    signature = hmac.new(receipt_key(key), SALT + payload, hashlib.sha256).hexdigest()
+    signature = hmac.new(receipt_key(key), salt + payload, hashlib.sha256).hexdigest()
     return payload.decode() + "." + signature
 
 
-def read_receipt(receipt, key, now=None):
+def read_receipt(receipt, key, now=None, *, ttl=TTL, salt=SALT):
     if not isinstance(receipt, str) or len(receipt) > 4096:
         raise ProofError("invalid_receipt")
     try:
         payload, signature = receipt.split(".")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", payload) or not re.fullmatch(r"[0-9a-f]{64}", signature):
             raise ValueError()
-        expected = hmac.new(receipt_key(key), SALT + payload.encode(), hashlib.sha256).hexdigest()
+        expected = hmac.new(receipt_key(key), salt + payload.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             raise ValueError()
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
@@ -108,7 +83,7 @@ def read_receipt(receipt, key, now=None):
         now = int(time.time()) if now is None else now
         if type(claims["iat"]) is not int or type(claims["exp"]) is not int:
             raise ValueError()
-        if claims["exp"] != claims["iat"] + TTL or not claims["iat"] <= now < claims["exp"]:
+        if claims["exp"] != claims["iat"] + ttl or not claims["iat"] <= now < claims["exp"]:
             raise ValueError()
         if not isinstance(claims["evidence_hash"], str) or not re.fullmatch(r"[0-9a-f]{64}", claims["evidence_hash"]):
             raise ValueError()

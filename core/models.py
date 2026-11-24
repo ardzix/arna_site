@@ -236,8 +236,6 @@ class DomainOwnershipAudit(models.Model):
     actor_id = models.UUIDField()
     hostname = models.CharField(max_length=253)
     provider = models.CharField(max_length=32)
-    project_id = models.CharField(max_length=100)
-    team_id = models.CharField(max_length=100)
     receipt_hash = models.CharField(max_length=64, unique=True)
     evidence_hash = models.CharField(max_length=64)
     created_at = models.DateTimeField(auto_now_add=True)
