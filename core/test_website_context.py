@@ -3,15 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APIRequestFactory
 
 from core.models import Domain
+from core.domain_proof_scope import PILOT_DOMAIN_ID, PILOT_HOST, PILOT_ORGANIZATION, PILOT_TENANT
 from core.website_context import PublicWebsiteContextView
 
 
 class WebsiteContextTest(SimpleTestCase):
     def call(self, host, domain):
+        if domain is not None and not hasattr(domain, 'domain'):
+            domain.domain = host
         with patch("core.website_context.schema_context", return_value=nullcontext()), patch(
             "core.website_context.Domain.objects"
         ) as manager:
@@ -68,6 +71,27 @@ class WebsiteContextTest(SimpleTestCase):
                 target = SimpleNamespace(is_active=active, sso_organization_id=org, public_id=identity)
                 response, _ = self.call("customer.example.com", SimpleNamespace(tenant=owner, crm_tenant=target))
                 self.assertEqual(response.status_code, 503)
+
+    def test_exact_pilot_requires_audit_and_cannot_route_to_other_same_org_inbox(self):
+        from uuid import UUID
+        owner = SimpleNamespace(sso_organization_id=PILOT_ORGANIZATION, public_id=UUID(PILOT_TENANT), is_active=True)
+        domain = SimpleNamespace(
+            tenant=owner, crm_tenant=None, role=Domain.ROLE_FRONTEND_CUSTOM,
+            status=Domain.STATUS_ACTIVE, verified_at=True, verification_method="https-origin-v1",
+            domain=PILOT_HOST, pk=PILOT_DOMAIN_ID,
+        )
+        self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 404)
+        with override_settings(DOMAIN_HTTPS_CHAT_ROUTING_ENABLED=True), patch(
+            "core.domain_proof_admission.DomainOwnershipAudit.objects"
+        ) as audit:
+            audit.filter.return_value.exists.return_value = False
+            self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 404)
+            audit.filter.return_value.exists.return_value = True
+            response, _ = self.call(PILOT_HOST, domain)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data["tenant_id"], PILOT_TENANT)
+            domain.crm_tenant = SimpleNamespace(sso_organization_id=PILOT_ORGANIZATION, public_id=uuid4(), is_active=True)
+            self.assertEqual(self.call(PILOT_HOST, domain)[0].status_code, 503)
 
 
 class WebsiteCRMDestinationValidationTest(SimpleTestCase):

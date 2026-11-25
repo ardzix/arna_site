@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.models import Domain
+from core.domain_proof_admission import domain_has_required_proof
+from core.domain_proof_scope import is_pilot_host
 
 
 def failure(code, detail, status):
@@ -32,7 +34,7 @@ class PublicWebsiteContextView(APIView):
                 verified_at__isnull=False,
                 tenant__is_active=True,
             ).first()
-            if not domain:
+            if not domain or not domain_has_required_proof(domain):
                 return failure("website_not_found", "Verified website not found.", 404)
             try:
                 organization_id = str(UUID(str(domain.tenant.sso_organization_id)))
@@ -43,6 +45,8 @@ class PublicWebsiteContextView(APIView):
                 ):
                     raise ValueError("CRM destination is inactive or belongs to another organization")
                 tenant_id = str(UUID(str(destination.public_id)))
+                if is_pilot_host(host) and tenant_id != str(domain.tenant.public_id):
+                    raise ValueError("Arnatech pilot CRM must remain in its approved inbox")
             except (ValueError, TypeError):
                 return failure("website_context_unavailable", "Website identity is unavailable.", 503)
             # Both IDs are public routing identifiers. The consumer must still
